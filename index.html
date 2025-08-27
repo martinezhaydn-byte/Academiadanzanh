@@ -7,29 +7,38 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <title>Academia de Danza — Web App</title>
+  <title>Academia de Danza</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header>
-    <h1>Academia de Danza — Web App (PWA)</h1>
+    <div class="brand">
+      <img src="icons/icon-192.png" alt="Logo" />
+      <h1 id="brand-title">Academia de Danza</h1>
+    </div>
     <nav id="tabs">
-      <button data-tab="dashboard" class="active">Dashboard</button>
-      <button data-tab="students">Alumnos</button>
-      <button data-tab="enrollments">Paquetes</button>
-      <button data-tab="attendance">Asistencias</button>
-      <button data-tab="payments">Pagos</button>
-      <button data-tab="events">Calendario</button>
-      <button data-tab="reports">Reportes</button>
-      <button data-tab="panel">Panel del Alumno</button>
-      <button id="btn-export">Exportar JSON</button>
-      <button id="btn-import">Importar JSON</button>
+      <button data-tab="attendance" class="active">Asistencias</button>
+      <button data-tab="panel">Panel Alumno</button>
+      <button data-tab="dashboard" data-admin>Dashboard</button>
+      <button data-tab="students" data-admin>Alumnos</button>
+      <button data-tab="enrollments" data-admin>Paquetes</button>
+      <button data-tab="payments" data-admin>Pagos</button>
+      <button data-tab="events" data-admin>Calendario</button>
+      <button data-tab="reports" data-admin>Reportes</button>
+      <button data-tab="config" data-admin>Config</button>
+      <button id="btn-export" data-admin>Exportar JSON</button>
+      <button id="btn-import" data-admin>Importar JSON</button>
       <input type="file" id="file-import" accept="application/json" style="display:none" />
+      <span class="spacer"></span>
+      <select id="mode-switch" title="Modo de visualización">
+        <option value="alumno">Modo Alumno</option>
+        <option value="admin">Modo Admin</option>
+      </select>
     </nav>
   </header>
 
   <main>
-    <section id="dashboard" class="tab active">
+    <section id="dashboard" class="tab">
       <div class="grid">
         <div class="card"><h3>Asistencias hoy</h3><p><span id="attendances-today">0</span></p></div>
         <div class="card"><h3>Pagos pendientes</h3><p><span id="payments-due">0</span></p></div>
@@ -42,7 +51,6 @@
       <h2>Alumnos</h2>
       <form id="form-student" class="form-grid">
         <input name="full_name" placeholder="Nombre completo" required />
-        <input name="date_of_birth" type="date" placeholder="Fecha de nacimiento" />
         <input name="age" type="number" placeholder="Edad" min="0" />
         <input name="phone" placeholder="Teléfono" />
         <input name="emergency_contact_name" placeholder="Contacto de emergencia" />
@@ -53,7 +61,7 @@
       </form>
       <div class="table-wrap">
         <table id="table-students">
-          <thead><tr><th>Nombre</th><th>Edad</th><th>Teléfono</th><th>Emergencia</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Nombre</th><th>Edad</th><th>Teléfono</th><th>Emergencia</th><th class="only-admin">PIN</th><th>Acciones</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -79,7 +87,6 @@
         <input name="amount_mxn" type="number" placeholder="Monto MXN" min="0" step="0.01" />
         <button>Asignar paquete</button>
       </form>
-      <h3>Paquetes activos</h3>
       <div class="table-wrap">
         <table id="table-enrollments">
           <thead><tr><th>Alumno</th><th>Paquete</th><th>Inicio</th><th>Fin</th><th>Restantes</th><th>Estado</th><th>Acciones</th></tr></thead>
@@ -88,7 +95,7 @@
       </div>
     </section>
 
-    <section id="attendance" class="tab">
+    <section id="attendance" class="tab active">
       <h2>Asistencias</h2>
       <div class="flex">
         <form id="form-attendance" class="form-inline">
@@ -170,6 +177,21 @@
         <button id="pv-logout">Salir</button>
       </div>
     </section>
+
+    <section id="config" class="tab">
+      <h2>Configuraciones (Admin)</h2>
+      <div class="form-grid">
+        <input id="cfg-brand-name" placeholder="Nombre de la academia" />
+        <input id="cfg-primary" placeholder="Color primario (hex)" value="#EFB8C8"/>
+        <input id="cfg-accent" placeholder="Color acento (hex)" value="#111827"/>
+        <input id="cfg-admin-pin" placeholder="PIN de Admin (4 dígitos)" maxlength="4" inputmode="numeric"/>
+        <input id="cfg-voice-ok" placeholder='Texto voz "acceso otorgado"' value="Acceso otorgado"/>
+        <input id="cfg-voice-deny" placeholder='Texto voz "acceso denegado"' value="Acceso denegado"/>
+        <button id="cfg-save">Guardar</button>
+      </div>
+      <p class="muted">El nombre y colores se guardan en este dispositivo (PWA sin servidor).</p>
+    </section>
+
   </main>
 
   <footer><small>PWA localStorage. Agrega a pantalla de inicio para modo app.</small></footer>

@@ -1,1 +1,361 @@
-(function(){const $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));const DB=['students','packages','enrollments','attendance','payments','events','pins'];function uid(p='id'){return p+'_'+Math.random().toString(36).slice(2,10)}function today(){return new Date().toISOString().slice(0,10)}function load(){const db={};for(const k of DB){const raw=localStorage.getItem(k);db[k]=raw?JSON.parse(raw):[]}if(db.packages.length===0){db.packages=[{package_id:'CLS1',name:'Clase suelta',classes_included:1,valid_days:7,price_mxn:100},{package_id:'PCK2',name:'2 clases',classes_included:2,valid_days:30,price_mxn:180},{package_id:'PCK4',name:'4 clases',classes_included:4,valid_days:30,price_mxn:320},{package_id:'PCK6',name:'6 clases',classes_included:6,valid_days:30,price_mxn:450},{package_id:'PCK8',name:'8 clases',classes_included:8,valid_days:30,price_mxn:560},{package_id:'FULL',name:'Mes completo',classes_included:9999,valid_days:31,price_mxn:900}]}save(db);return db}function save(db){for(const k of DB){localStorage.setItem(k,JSON.stringify(db[k]||[]))}}const db=load();$$('#tabs button[data-tab]').forEach(b=>b.addEventListener('click',()=>{$$('#tabs button').forEach(x=>x.classList.remove('active'));b.classList.add('active');const t=b.dataset.tab;$$('.tab').forEach(s=>s.classList.remove('active'));$('#'+t).classList.add('active');renderAll()}));$('#btn-export').addEventListener('click',()=>{const data={};for(const k of DB){data[k]=db[k]}const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='dance_academy_backup.json';a.click();URL.revokeObjectURL(a.href)});$('#btn-import').addEventListener('click',()=>$('#file-import').click());$('#file-import').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{const t=await f.text();const d=JSON.parse(t);for(const k of DB){db[k]=Array.isArray(d[k])?d[k]:[]}save(db);alert('Importado');renderAll()}catch(err){alert('Archivo inválido')}finally{e.target.value=''}});function renderStudents(){const tb=$('#table-students tbody');tb.innerHTML='';for(const s of db.students){const tr=document.createElement('tr');const em=[s.emergency_contact_name,s.emergency_contact_phone].filter(Boolean).join(' / ');tr.innerHTML=`<td>${s.full_name||''}</td><td>${s.age||''}</td><td>${s.phone||''}</td><td>${em}</td><td><button data-act="setpin" data-id="${s.student_id}">PIN</button><button data-act="del" data-id="${s.student_id}">Eliminar</button></td>`;tb.appendChild(tr)}tb.addEventListener('click',e=>{const btn=e.target.closest('button');if(!btn)return;const id=btn.dataset.id;if(btn.dataset.act==='del'){if(confirm('¿Eliminar alumno?')){db.students=db.students.filter(x=>x.student_id!==id);db.enrollments=db.enrollments.filter(x=>x.student_id!==id);db.attendance=db.attendance.filter(x=>x.student_id!==id);db.payments=db.payments.filter(x=>x.student_id!==id);db.pins=db.pins.filter(x=>x.student_id!==id);save(db);renderAll()}}else if(btn.dataset.act==='setpin'){const pin=prompt('PIN de 4 dígitos:','0000');if(pin&&/^\d{4}$/.test(pin)){const ex=db.pins.find(p=>p.student_id===id);if(ex)ex.pin=pin;else db.pins.push({student_id:id,pin});save(db);alert('PIN actualizado')}else alert('PIN inválido')}},{once:true})}$('#form-student').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);const s=Object.fromEntries(fd.entries());s.student_id=uid('stu');db.students.push(s);save(db);e.target.reset();renderAll()});function renderEnrollmentSelectors(){const selS=$('#form-enrollment select[name="student_id"]');const selP=$('#form-enrollment select[name="package_id"]');selS.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('');selP.innerHTML='<option value="">(paquete)</option>'+db.packages.map(p=>`<option value="${p.package_id}">${p.name} (${p.classes_included})</option>`).join('')}function renderEnrollmentTable(){const tb=$('#table-enrollments tbody');tb.innerHTML='';for(const en of db.enrollments){const s=db.students.find(x=>x.student_id===en.student_id);const p=db.packages.find(x=>x.package_id===en.package_id);const tr=document.createElement('tr');tr.innerHTML=`<td>${s?s.full_name:''}</td><td>${p?p.name:''}</td><td>${en.start_date}</td><td>${en.end_date}</td><td>${en.remaining_classes}</td><td>${en.status}</td><td><button data-act="pause" data-id="${en.enrollment_id}">Pausar</button><button data-act="close" data-id="${en.enrollment_id}">Cerrar</button></td>`;tb.appendChild(tr)}tb.addEventListener('click',e=>{const btn=e.target.closest('button');if(!btn)return;const id=btn.dataset.id;const en=db.enrollments.find(x=>x.enrollment_id===id);if(!en)return;if(btn.dataset.act==='pause'){en.status=en.status==='pausado'?'activo':'pausado'}if(btn.dataset.act==='close'){en.status='vencido'}save(db);renderAll()},{once:true})}$('#form-enrollment').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);const sid=fd.get('student_id');const pid=fd.get('package_id');const sd=fd.get('start_date');const ed=fd.get('end_date');if(!sid||!pid||!sd||!ed){alert('Completa alumno, paquete y fechas');return}for(const en of db.enrollments){if(en.student_id===sid&&en.status==='activo'){en.status='vencido'}}const pkg=db.packages.find(p=>p.package_id===pid);const en={enrollment_id:uid('enr'),student_id:sid,package_id:pid,start_date:sd,end_date:ed,remaining_classes:pkg.package_id==='FULL'?9999:pkg.classes_included,status:'activo'};db.enrollments.push(en);const method=fd.get('payment_method');const status=fd.get('payment_status');const amount=parseFloat(fd.get('amount_mxn')||'0');if(method||status||amount>0){db.payments.push({payment_id:uid('pay'),enrollment_id:en.enrollment_id,student_id:sid,date:today(),amount_mxn:amount||0,method:method||'',status:status||'pendiente',reference:''})}save(db);e.target.reset();renderAll()});function getActiveEnrollment(sid){const t=today();return db.enrollments.find(en=>en.student_id===sid&&en.status==='activo'&&(!en.start_date||en.start_date<=t)&&(!en.end_date||en.end_date>=t))||null}function markAttendanceFor(sid,cls,by='admin'){const en=getActiveEnrollment(sid);const s=db.students.find(x=>x.student_id===sid);if(!s){alert('Alumno no encontrado');return}if(!en){alert(`Sin paquete activo para ${s.full_name}`);return}const count=en.package_id!=='FULL';if(count&&en.remaining_classes<=0){alert(`${s.full_name} no tiene clases restantes.`);return}db.attendance.push({attendance_id:uid('att'),enrollment_id:en.enrollment_id,student_id:sid,date:today(),class_name_or_group:cls||'',marked_by:by,was_counted:count?'yes':'no'});if(count){en.remaining_classes-=1;if(en.remaining_classes===1){alert(`Aviso: a ${s.full_name} le queda 1 clase.`)}}save(db);renderAll()}$('#form-attendance').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);markAttendanceFor(fd.get('student_id'),fd.get('class_name_or_group')||'', 'admin');e.target.reset()});$('#form-pin').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);const pin=(fd.get('pin')||'').trim();const cls=fd.get('class_name_or_group')||'';const m=db.pins.find(p=>p.pin===pin);if(!m){alert('PIN incorrecto');return}markAttendanceFor(m.student_id,cls,'pin');e.target.reset()});function renderAttendance(){const tb=$('#table-attendance tbody');tb.innerHTML='';const rows=db.attendance.slice().sort((a,b)=>b.date.localeCompare(a.date));for(const at of rows){const s=db.students.find(x=>x.student_id===at.student_id);const tr=document.createElement('tr');tr.innerHTML=`<td>${at.date}</td><td>${s?s.full_name:''}</td><td>${at.class_name_or_group||''}</td><td>${at.was_counted}</td><td>${at.marked_by}</td>`;tb.appendChild(tr)}}function renderAttendanceSelectors(){const sel=$('#form-attendance select[name="student_id"]');sel.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('')}function renderPayments(){const tb=$('#table-payments tbody');tb.innerHTML='';const rows=db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date));for(const p of rows){const s=db.students.find(x=>x.student_id===p.student_id);const tr=document.createElement('tr');tr.innerHTML=`<td>${p.date}</td><td>${s?s.full_name:''}</td><td>${p.method||''}</td><td>${(p.amount_mxn||0).toFixed(2)}</td><td>${p.status||''}</td><td>${p.reference||''}</td>`;tb.appendChild(tr)}}$('#form-event').addEventListener('submit',e=>{e.preventDefault();const fd=new FormData(e.target);const ev=Object.fromEntries(fd.entries());ev.event_id=uid('evt');db.events.push(ev);save(db);e.target.reset();renderAll()});function renderEvents(){const tb=$('#table-events tbody');tb.innerHTML='';const rows=db.events.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));for(const ev of rows){const tr=document.createElement('tr');tr.innerHTML=`<td>${ev.date||''} ${ev.start_time||''}</td><td>${ev.title||''}</td><td>${ev.type||''}</td><td>${ev.location||''}</td><td><button data-act="notify" data-id="${ev.event_id}">Notificar</button> <button data-act="del" data-id="${ev.event_id}">Eliminar</button></td>`;tb.appendChild(tr)}tb.addEventListener('click',e=>{const btn=e.target.closest('button');if(!btn)return;const id=btn.dataset.id;const ev=db.events.find(x=>x.event_id===id);if(btn.dataset.act==='del'){if(confirm('¿Eliminar evento?')){db.events=db.events.filter(x=>x.event_id!==id);save(db);renderAll()}} else if(btn.dataset.act==='notify'){alert(`Notificación simulada: "${ev.title}" el ${ev.date} ${ev.start_time||''}`)}},{once:true})}function sumBy(a,f){return a.reduce((x,y)=>x+(+f(y)||0),0)}function groupBy(a,k){return a.reduce((acc,x)=>{const key=k(x);(acc[key]??=[]).push(x);return acc},{})}function renderReports(){const n=new Date();const ym=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;const att=db.attendance.filter(a=>(a.date||'').startsWith(ym));$('#r-attendance-month').textContent=`${att.length} asistencias`;const pay=db.payments.filter(p=>(p.date||'').startsWith(ym)&&p.status==='pagado');$('#r-income-month').textContent=`$ ${sumBy(pay,x=>x.amount_mxn).toFixed(2)} MXN`;const sold=db.enrollments.filter(en=>(en.start_date||'').startsWith(ym));const g=groupBy(sold,en=>en.package_id);const ul=$('#r-top-packages');ul.innerHTML='';Object.entries(g).sort((a,b)=>b[1].length-a[1].length).forEach(([id,list])=>{const pkg=db.packages.find(p=>p.package_id===id);const li=document.createElement('li');li.textContent=`${pkg?pkg.name:id}: ${list.length}`;ul.appendChild(li)})}function renderDashboard(){const t=today();$('#attendances-today').textContent=db.attendance.filter(a=>a.date===t).length;$('#payments-due').textContent=db.payments.filter(p=>(p.status||'')==='pendiente').length;const next7=new Date();next7.setDate(next7.getDate()+7);const exp=db.enrollments.filter(en=>{if(en.status!=='activo'||!en.end_date)return false;const ed=new Date(en.end_date);const td=new Date(t);return ed>=td&&ed<=next7}).length;$('#expiring-packages').textContent=exp;const up=db.events.filter(ev=>{if(!ev.date)return false;const d=new Date(ev.date);const td=new Date(t);const n7=new Date(td);n7.setDate(n7.getDate()+7);return d>=td&&d<=n7}).length;$('#upcoming-events').textContent=up}$('#form-panel-login').addEventListener('submit',e=>{e.preventDefault();const pin=new FormData(e.target).get('pin')||'';const rec=db.pins.find(p=>p.pin===pin);if(!rec){alert('PIN incorrecto');return}const sid=rec.student_id;const s=db.students.find(x=>x.student_id===sid);const en=getActiveEnrollment(sid);$('#pv-name').textContent=s?s.full_name:'(Alumno)';$('#pv-remaining').textContent=en?(en.package_id==='FULL'?'Ilimitadas':en.remaining_classes):'0';$('#pv-ends').textContent=en?(en.end_date||'-'):'-';const td=new Date(today());const n30=new Date(td);n30.setDate(n30.getDate()+30);const ul=$('#pv-events');ul.innerHTML='';db.events.filter(ev=>ev.date&&new Date(ev.date)>=td&&new Date(ev.date)<=n30).sort((a,b)=>(a.date||'').localeCompare(b.date||'')).slice(0,8).forEach(ev=>{const li=document.createElement('li');li.textContent=`${ev.date} ${ev.start_time||''} — ${ev.title}`;ul.appendChild(li)});$('#panel-login').style.display='none';$('#panel-view').style.display='block'});$('#pv-logout').addEventListener('click',()=>{$('#panel-login').style.display='block';$('#panel-view').style.display='none'});function refreshStatuses(){const t=today();for(const en of db.enrollments){if(en.status==='activo'&&en.end_date&&en.end_date<t){en.status='vencido'}}save(db)}function renderAll(){refreshStatuses();renderStudents();renderEnrollmentSelectors();renderEnrollmentTable();renderAttendanceSelectors();renderAttendance();renderPayments();renderEvents();renderReports();renderDashboard()}renderAll()})();
+(function(){
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
+const DB=['students','packages','enrollments','attendance','payments','events','pins'];
+const CFG_KEY='app_config';
+
+function loadConfig(){
+  const c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
+  return {
+    brand_name: c.brand_name || 'Academia de Danza',
+    primary: c.primary || '#EFB8C8',
+    accent: c.accent || '#111827',
+    admin_pin: c.admin_pin || '1234',
+    voice_ok: c.voice_ok || 'Acceso otorgado',
+    voice_deny: c.voice_deny || 'Acceso denegado'
+  };
+}
+function saveConfig(c){ localStorage.setItem(CFG_KEY, JSON.stringify(c)); }
+let config = loadConfig();
+let currentMode = 'alumno';
+
+function applyBrand(){
+  document.documentElement.style.setProperty('--primary', config.primary);
+  document.documentElement.style.setProperty('--accent', config.accent);
+  const title = $('#brand-title'); if(title) title.textContent = config.brand_name;
+  document.title = config.brand_name;
+}
+function applyModeToUI(){
+  $$('#tabs [data-admin]').forEach(el=>{ el.style.display = (currentMode==='admin') ? '' : 'none'; });
+  const activeBtn = $$('#tabs button.active')[0];
+  if(currentMode==='alumno' && activeBtn && activeBtn.hasAttribute('data-admin')){
+    $$('#tabs button').forEach(b=>b.classList.remove('active'));
+    $$('#tabs button[data-tab="attendance"]')[0].classList.add('active');
+    $$('.tab').forEach(s=>s.classList.remove('active'));
+    $('#attendance').classList.add('active');
+  }
+  $$('.pin-cell, .only-admin').forEach(td=>{ td.style.display = (currentMode==='admin') ? '' : 'none'; });
+}
+function speak(text){
+  try{
+    const u = new SpeechSynthesisUtterance(text);
+    const voices = speechSynthesis.getVoices();
+    const es = voices.find(v => /es-|Spanish|español/i.test((v.lang||'') + v.name));
+    if(es) u.voice = es;
+    u.rate = 1;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+
+function uid(p='id'){return p+'_'+Math.random().toString(36).slice(2,10)}
+function todayISO(){return new Date().toISOString().slice(0,10)}
+function parseISO(d){return d? new Date(d+'T00:00:00') : null}
+function load(){const db={};for(const k of DB){const raw=localStorage.getItem(k);db[k]=raw?JSON.parse(raw):[]}if(db.packages.length===0){db.packages=[{package_id:'CLS1',name:'Clase suelta',classes_included:1,valid_days:7,price_mxn:100},{package_id:'PCK2',name:'2 clases',classes_included:2,valid_days:30,price_mxn:180},{package_id:'PCK4',name:'4 clases',classes_included:4,valid_days:30,price_mxn:320},{package_id:'PCK6',name:'6 clases',classes_included:6,valid_days:30,price_mxn:450},{package_id:'PCK8',name:'8 clases',classes_included:8,valid_days:30,price_mxn:560},{package_id:'FULL',name:'Mes completo',classes_included:9999,valid_days:31,price_mxn:900}]}save(db);return db}
+function save(db){for(const k of DB){localStorage.setItem(k,JSON.stringify(db[k]||[]))}}
+const db=load();
+
+function getPinByStudentId(sid){ return db.pins.find(p=>p.student_id===sid) || null; }
+function setPinForStudent(sid, pin){ const ex=getPinByStudentId(sid); if(ex) ex.pin=pin; else db.pins.push({student_id:sid,pin}); save(db); }
+function isPinInUse(pin){ return !!db.pins.find(p=>p.pin===pin); }
+function generateUniquePin(){ let p; do{ p=Math.floor(Math.random()*10000).toString().padStart(4,'0'); }while(isPinInUse(p)); return p; }
+function copyToClipboard(text){ try{ navigator.clipboard.writeText(text); alert('PIN copiado'); }catch(e){ prompt('Copia el PIN:', text); } }
+
+$$('#tabs button[data-tab]').forEach(b=>b.addEventListener('click',()=>{
+  $$('#tabs button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  const t=b.dataset.tab;
+  $$('.tab').forEach(s=>s.classList.remove('active'));
+  $('#'+t).classList.add('active');
+  renderAll();
+}));
+$('#mode-switch').value = currentMode;
+$('#mode-switch').addEventListener('change', ()=>{
+  const target = $('#mode-switch').value;
+  if(target==='admin'){
+    const pin = prompt('PIN de Admin:');
+    if(pin === config.admin_pin){ currentMode='admin'; }
+    else { alert('PIN incorrecto'); $('#mode-switch').value='alumno'; currentMode='alumno'; }
+  } else { currentMode='alumno'; }
+  applyModeToUI();
+});
+
+$('#btn-export')?.addEventListener('click',()=>{
+  const data={}; for(const k of DB){ data[k]=db[k]; }
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='dance_academy_backup.json'; a.click(); URL.revokeObjectURL(a.href);
+});
+$('#btn-import')?.addEventListener('click',()=>$('#file-import').click());
+$('#file-import')?.addEventListener('change',async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  try{ const t=await f.text(); const d=JSON.parse(t); for(const k of DB){ db[k]=Array.isArray(d[k])?d[k]:[] } save(db); alert('Importado'); renderAll(); }
+  catch(err){ alert('Archivo inválido') }
+  finally{ e.target.value='' }
+});
+
+// Config UI
+$('#cfg-brand-name').value = config.brand_name;
+$('#cfg-primary').value = config.primary;
+$('#cfg-accent').value = config.accent;
+$('#cfg-admin-pin').value = config.admin_pin;
+$('#cfg-voice-ok').value = config.voice_ok;
+$('#cfg-voice-deny').value = config.voice_deny;
+$('#cfg-save').addEventListener('click',()=>{
+  const pin=$('#cfg-admin-pin').value.trim();
+  if(!/^\d{4}$/.test(pin)){ alert('PIN de admin inválido'); return; }
+  config={
+    brand_name: $('#cfg-brand-name').value || 'Academia de Danza',
+    primary: $('#cfg-primary').value || '#EFB8C8',
+    accent: $('#cfg-accent').value || '#111827',
+    admin_pin: pin,
+    voice_ok: $('#cfg-voice-ok').value || 'Acceso otorgado',
+    voice_deny: $('#cfg-voice-deny').value || 'Acceso denegado'
+  };
+  saveConfig(config);
+  applyBrand();
+  alert('Configuración guardada');
+});
+
+$('#form-student').addEventListener('submit',e=>{
+  e.preventDefault();
+  const fd=new FormData(e.target);
+  const s=Object.fromEntries(fd.entries());
+  s.student_id=uid('stu');
+  db.students.push(s); save(db); e.target.reset(); renderAll();
+});
+
+function renderStudents(){
+  const tb=$('#table-students tbody'); tb.innerHTML='';
+  for(const s of db.students){
+    const rec=getPinByStudentId(s.student_id); const pin=rec?rec.pin:'—';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td>${s.full_name||''}</td>
+      <td>${s.age||''}</td>
+      <td>${s.phone||''}</td>
+      <td>${[s.emergency_contact_name,s.emergency_contact_phone].filter(Boolean).join(' / ')}</td>
+      <td class="pin-cell"><strong>${pin}</strong>
+        <button data-act="setpin" data-id="${s.student_id}">Asignar/Editar</button>
+        <button data-act="genpin" data-id="${s.student_id}">Regenerar</button>
+        <button data-act="copypin" data-id="${s.student_id}">Copiar</button>
+      </td>
+      <td><button data-act="del" data-id="${s.student_id}">Eliminar</button></td>`;
+    tb.appendChild(tr);
+  }
+  tb.addEventListener('click',e=>{
+    const btn=e.target.closest('button'); if(!btn) return;
+    const sid=btn.dataset.id;
+    if(btn.dataset.act==='del'){
+      if(confirm('¿Eliminar alumno?')){
+        db.students=db.students.filter(x=>x.student_id!==sid);
+        db.enrollments=db.enrollments.filter(x=>x.student_id!==sid);
+        db.attendance=db.attendance.filter(x=>x.student_id!==sid);
+        db.payments=db.payments.filter(x=>x.student_id!==sid);
+        db.pins=db.pins.filter(x=>x.student_id!==sid);
+        save(db); renderAll();
+      }
+    }
+    if(btn.dataset.act==='setpin'){
+      const current=getPinByStudentId(sid)?.pin||'';
+      const p=prompt('PIN (4 dígitos):', current||'0000');
+      if(p && /^\d{4}$/.test(p)){
+        if(isPinInUse(p) && getPinByStudentId(sid)?.pin!==p){ alert('Ese PIN ya está en uso'); return; }
+        setPinForStudent(sid,p); renderAll();
+      } else if(p!==null){ alert('PIN inválido'); }
+    }
+    if(btn.dataset.act==='genpin'){ const p=generateUniquePin(); setPinForStudent(sid,p); alert(`Nuevo PIN: ${p}`); renderAll(); }
+    if(btn.dataset.act==='copypin'){ const p=getPinByStudentId(sid)?.pin; if(p) copyToClipboard(p); else alert('Este alumno aún no tiene PIN'); }
+  },{once:true});
+}
+
+function renderEnrollmentSelectors(){
+  const selS=$('#form-enrollment select[name="student_id"]');
+  const selP=$('#form-enrollment select[name="package_id"]');
+  selS.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('');
+  selP.innerHTML='<option value="">(paquete)</option>'+db.packages.map(p=>`<option value="${p.package_id}">${p.name} (${p.classes_included})</option>`).join('');
+}
+function renderEnrollmentTable(){
+  const tb=$('#table-enrollments tbody'); tb.innerHTML='';
+  for(const en of db.enrollments){
+    const s=db.students.find(x=>x.student_id===en.student_id);
+    const p=db.packages.find(x=>x.package_id===en.package_id);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${s?s.full_name:''}</td><td>${p?p.name:''}</td><td>${en.start_date}</td><td>${en.end_date}</td><td>${en.remaining_classes}</td><td>${en.status}</td><td><button data-act="pause" data-id="${en.enrollment_id}">Pausar</button><button data-act="close" data-id="${en.enrollment_id}">Cerrar</button></td>`;
+    tb.appendChild(tr);
+  }
+  tb.addEventListener('click',e=>{
+    const btn=e.target.closest('button'); if(!btn) return;
+    const id=btn.dataset.id; const en=db.enrollments.find(x=>x.enrollment_id===id); if(!en) return;
+    if(btn.dataset.act==='pause'){ en.status=en.status==='pausado'?'activo':'pausado'; }
+    if(btn.dataset.act==='close'){ en.status='vencido'; }
+    save(db); renderAll();
+  },{once:true});
+}
+$('#form-enrollment').addEventListener('submit',e=>{
+  e.preventDefault();
+  const fd=new FormData(e.target);
+  const sid=fd.get('student_id'), pid=fd.get('package_id');
+  const sd=fd.get('start_date'), ed=fd.get('end_date');
+  if(!sid||!pid||!sd||!ed){ alert('Completa alumno, paquete y fechas'); return; }
+  for(const en of db.enrollments){ if(en.student_id===sid && en.status==='activo'){ en.status='vencido'; } }
+  const pkg=db.packages.find(p=>p.package_id===pid);
+  const en={ enrollment_id:uid('enr'), student_id:sid, package_id:pid, start_date:sd, end_date:ed, remaining_classes: (pkg.package_id==='FULL'?9999:pkg.classes_included), status:'activo' };
+  db.enrollments.push(en);
+  const method=fd.get('payment_method'); const status=fd.get('payment_status'); const amount=parseFloat(fd.get('amount_mxn')||'0');
+  if(method||status||amount>0){ db.payments.push({ payment_id:uid('pay'), enrollment_id:en.enrollment_id, student_id:sid, date:todayISO(), amount_mxn:amount||0, method:method||'', status:status||'pendiente', reference:'' }); }
+  save(db); e.target.reset(); renderAll();
+});
+
+function refreshStatuses(){
+  const t=todayISO();
+  for(const en of db.enrollments){ if(en.status==='activo' && en.end_date && en.end_date<t){ en.status='vencido'; } }
+  save(db);
+}
+function getActiveEnrollment(sid){
+  const t=parseISO(todayISO());
+  return db.enrollments.find(en=>{
+    if(en.student_id!==sid) return false;
+    if(en.status!=='activo') return false;
+    const sd=parseISO(en.start_date), ed=parseISO(en.end_date);
+    const startsOk=!sd || sd<=t; const endsOk=!ed || ed>=t;
+    return startsOk && endsOk;
+  }) || null;
+}
+function getLatestEnrollment(sid){
+  const list = db.enrollments.filter(e=>e.student_id===sid).sort((a,b)=>(b.start_date||'').localeCompare(a.start_date||''));
+  return list[0] || null;
+}
+function hasPaidForEnrollment(en){
+  const list=db.payments.filter(p=>p.enrollment_id===en.enrollment_id && p.status==='pagado');
+  return list.length>0;
+}
+
+function renderAttendanceSelectors(){
+  const sel=$('#form-attendance select[name="student_id"]');
+  sel.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('');
+}
+function markAttendanceFor(sid, cls, by='admin'){
+  const s=db.students.find(x=>x.student_id===sid); if(!s){ alert('Alumno no encontrado'); speak(config.voice_deny); return; }
+  let en=getActiveEnrollment(sid); if(!en) en=getLatestEnrollment(sid);
+  if(!en){ alert(`Sin paquete activo para ${s.full_name}`); speak(config.voice_deny); return; }
+  if(currentMode==='alumno' && !hasPaidForEnrollment(en)){ alert(`Acceso denegado: pago pendiente de ${s.full_name}.`); speak(config.voice_deny); return; }
+  const countable=en.package_id!=='FULL';
+  if(countable && en.remaining_classes<=0){ alert(`${s.full_name} no tiene clases restantes.`); speak(config.voice_deny); return; }
+  db.attendance.push({ attendance_id:uid('att'), enrollment_id:en.enrollment_id, student_id:sid, date:todayISO(), class_name_or_group:cls||'', marked_by:by, was_counted:countable?'yes':'no' });
+  if(countable){ en.remaining_classes -= 1; if(en.remaining_classes===1){ alert(`Aviso: a ${s.full_name} le queda 1 clase.`); } }
+  save(db); renderAll(); speak(config.voice_ok);
+}
+$('#form-attendance').addEventListener('submit',e=>{
+  e.preventDefault(); const fd=new FormData(e.target);
+  markAttendanceFor(fd.get('student_id'), fd.get('class_name_or_group')||'', 'admin'); e.target.reset();
+});
+$('#form-pin').addEventListener('submit',e=>{
+  e.preventDefault(); const fd=new FormData(e.target);
+  const rec=db.pins.find(p=>p.pin===(fd.get('pin')||'').trim()); if(!rec){ alert('PIN incorrecto'); speak(config.voice_deny); return; }
+  markAttendanceFor(rec.student_id, fd.get('class_name_or_group')||'', 'pin'); e.target.reset();
+});
+
+function renderAttendance(){
+  const tb=$('#table-attendance tbody'); tb.innerHTML='';
+  const rows=db.attendance.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  for(const at of rows){
+    const s=db.students.find(x=>x.student_id===at.student_id);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${at.date}</td><td>${s?s.full_name:''}</td><td>${at.class_name_or_group||''}</td><td>${at.was_counted}</td><td>${at.marked_by}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
+function renderPayments(){
+  const tb=$('#table-payments tbody'); tb.innerHTML='';
+  const rows=db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  for(const p of rows){
+    const s=db.students.find(x=>x.student_id===p.student_id);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${p.date}</td><td>${s?s.full_name:''}</td><td>${p.method||''}</td><td>${(p.amount_mxn||0).toFixed(2)}</td><td>${p.status||''}</td><td>${p.reference||''}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
+$('#form-event').addEventListener('submit',e=>{
+  e.preventDefault(); const fd=new FormData(e.target);
+  const ev=Object.fromEntries(fd.entries()); ev.event_id=uid('evt'); db.events.push(ev); save(db); e.target.reset(); renderAll();
+});
+function renderEvents(){
+  const tb=$('#table-events tbody'); tb.innerHTML='';
+  const rows=db.events.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  for(const ev of rows){
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${ev.date||''} ${ev.start_time||''}</td><td>${ev.title||''}</td><td>${ev.type||''}</td><td>${ev.location||''}</td><td><button data-act="notify" data-id="${ev.event_id}">Notificar</button> <button data-act="del" data-id="${ev.event_id}">Eliminar</button></td>`;
+    tb.appendChild(tr);
+  }
+  tb.addEventListener('click',e=>{
+    const btn=e.target.closest('button'); if(!btn) return;
+    const id=btn.dataset.id; const ev=db.events.find(x=>x.event_id===id);
+    if(btn.dataset.act==='del'){ if(confirm('¿Eliminar evento?')){ db.events=db.events.filter(x=>x.event_id!==id); save(db); renderAll(); } }
+    else if(btn.dataset.act==='notify'){ alert(`Notificación simulada: "${ev.title}" el ${ev.date} ${ev.start_time||''}`); }
+  },{once:true});
+}
+
+function sumBy(a,f){return a.reduce((x,y)=>x+(+f(y)||0),0)}
+function groupBy(a,k){return a.reduce((acc,x)=>{const key=k(x);(acc[key]??=[]).push(x);return acc},{})}
+function renderReports(){
+  const n=new Date(); const ym=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
+  const att=db.attendance.filter(a=>(a.date||'').startsWith(ym));
+  $('#r-attendance-month').textContent=`${att.length} asistencias`;
+  const pay=db.payments.filter(p=>(p.date||'').startsWith(ym)&&p.status==='pagado');
+  $('#r-income-month').textContent=`$ ${sumBy(pay,x=>x.amount_mxn).toFixed(2)} MXN`;
+  const sold=db.enrollments.filter(en=>(en.start_date||'').startsWith(ym));
+  const g=groupBy(sold,en=>en.package_id);
+  const ul=$('#r-top-packages'); ul.innerHTML='';
+  Object.entries(g).sort((a,b)=>b[1].length-a[1].length).forEach(([id,list])=>{
+    const pkg=db.packages.find(p=>p.package_id===id);
+    const li=document.createElement('li'); li.textContent=`${pkg?pkg.name:id}: ${list.length}`; ul.appendChild(li);
+  });
+}
+function renderDashboard(){
+  const t=todayISO();
+  $('#attendances-today').textContent=db.attendance.filter(a=>a.date===t).length;
+  $('#payments-due').textContent=db.payments.filter(p=>(p.status||'')==='pendiente').length;
+  const next7=new Date(); next7.setDate(next7.getDate()+7);
+  const exp=db.enrollments.filter(en=>{ if(en.status!=='activo'||!en.end_date) return false; const ed=new Date(en.end_date); const td=new Date(t); return ed>=td&&ed<=next7; }).length;
+  $('#expiring-packages').textContent=exp;
+  const up=db.events.filter(ev=>{ if(!ev.date) return false; const d=new Date(ev.date); const td=new Date(t); const n7=new Date(td); n7.setDate(n7.getDate()+7); return d>=td&&d<=n7; }).length;
+  $('#upcoming-events').textContent=up;
+}
+
+$('#form-panel-login').addEventListener('submit',e=>{
+  e.preventDefault();
+  const pin=(new FormData(e.target).get('pin')||'').trim();
+  const rec=db.pins.find(p=>p.pin===pin);
+  if(!rec){ alert('PIN incorrecto'); return; }
+  const sid=rec.student_id;
+  const s=db.students.find(x=>x.student_id===sid);
+  let en=getActiveEnrollment(sid);
+  if(!en) en=getLatestEnrollment(sid);
+  $('#pv-name').textContent=s?s.full_name:'(Alumno)';
+  const remaining=(en?(en.package_id==='FULL'?'Ilimitadas':(en.remaining_classes ?? en.remaining ?? 0)):'0');
+  $('#pv-remaining').textContent=remaining;
+  $('#pv-ends').textContent=en?(en.end_date||'-'):'-';
+  const td=new Date(todayISO()); const n30=new Date(td); n30.setDate(n30.getDate()+30);
+  const ul=$('#pv-events'); ul.innerHTML='';
+  db.events.filter(ev=>ev.date&&new Date(ev.date)>=td&&new Date(ev.date)<=n30)
+           .sort((a,b)=>(a.date||'').localeCompare(b.date||''))
+           .slice(0,8).forEach(ev=>{ const li=document.createElement('li'); li.textContent=`${ev.date} ${ev.start_time||''} — ${ev.title}`; ul.appendChild(li); });
+  $('#panel-login').style.display='none'; $('#panel-view').style.display='block';
+});
+$('#pv-logout').addEventListener('click',()=>{ $('#panel-login').style.display='block'; $('#panel-view').style.display='none'; });
+
+function renderAll(){
+  refreshStatuses();
+  try{ renderStudents(); }catch(e){}
+  try{ renderEnrollmentSelectors(); renderEnrollmentTable(); }catch(e){}
+  try{ renderAttendanceSelectors(); renderAttendance(); }catch(e){}
+  try{ renderPayments(); }catch(e){}
+  try{ renderEvents(); }catch(e){}
+  try{ renderReports(); renderDashboard(); }catch(e){}
+  applyModeToUI();
+  applyBrand();
+}
+renderAll();
+})();
