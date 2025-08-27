@@ -11,6 +11,7 @@ function loadConfig(){
     primary: c.primary || '#EFB8C8',
     accent: c.accent || '#111827',
     admin_pin: c.admin_pin || '1234',
+    default_class: c.default_class || 'General',
     voice_ok: c.voice_ok || 'Acceso otorgado',
     voice_deny: c.voice_deny || 'Acceso denegado'
   };
@@ -34,8 +35,15 @@ function applyModeToUI(){
     $$('.tab').forEach(s=>s.classList.remove('active'));
     $('#attendance').classList.add('active');
   }
+  // Asistencias: en alumno, ocultar formulario admin y el campo de clase en PIN
+  $('#form-attendance').style.display = (currentMode==='admin') ? '' : 'none';
+  $('#pin-class').style.display = (currentMode==='admin') ? '' : 'none';
+  // Columna PIN en Alumnos
   $$('.pin-cell, .only-admin').forEach(td=>{ td.style.display = (currentMode==='admin') ? '' : 'none'; });
+  // Cabecera asistencias según modo
+  renderAttendanceHead();
 }
+
 function speak(text){
   try{
     const u = new SpeechSynthesisUtterance(text);
@@ -51,16 +59,31 @@ function speak(text){
 function uid(p='id'){return p+'_'+Math.random().toString(36).slice(2,10)}
 function todayISO(){return new Date().toISOString().slice(0,10)}
 function parseISO(d){return d? new Date(d+'T00:00:00') : null}
-function load(){const db={};for(const k of DB){const raw=localStorage.getItem(k);db[k]=raw?JSON.parse(raw):[]}if(db.packages.length===0){db.packages=[{package_id:'CLS1',name:'Clase suelta',classes_included:1,valid_days:7,price_mxn:100},{package_id:'PCK2',name:'2 clases',classes_included:2,valid_days:30,price_mxn:180},{package_id:'PCK4',name:'4 clases',classes_included:4,valid_days:30,price_mxn:320},{package_id:'PCK6',name:'6 clases',classes_included:6,valid_days:30,price_mxn:450},{package_id:'PCK8',name:'8 clases',classes_included:8,valid_days:30,price_mxn:560},{package_id:'FULL',name:'Mes completo',classes_included:9999,valid_days:31,price_mxn:900}]}save(db);return db}
+function load(){const db={};for(const k of DB){const raw=localStorage.getItem(k);db[k]=raw?JSON.parse(raw):[]}if(db.packages.length===0){db.packages=[
+  {package_id:'CLS1', name:'Clase suelta', classes_included:1, valid_days:7, price_mxn:100},
+  {package_id:'PCK2', name:'2 clases', classes_included:2, valid_days:30, price_mxn:180},
+  {package_id:'PCK3', name:'3 clases', classes_included:3, valid_days:30, price_mxn:270},
+  {package_id:'PCK4', name:'4 clases', classes_included:4, valid_days:30, price_mxn:360},
+  {package_id:'PCK5', name:'5 clases', classes_included:5, valid_days:30, price_mxn:450},
+  {package_id:'PCK6', name:'6 clases', classes_included:6, valid_days:30, price_mxn:540},
+  {package_id:'PCK7', name:'7 clases', classes_included:7, valid_days:30, price_mxn:630},
+  {package_id:'PCK8', name:'8 clases', classes_included:8, valid_days:30, price_mxn:720},
+  {package_id:'PCK9', name:'9 clases', classes_included:9, valid_days:30, price_mxn:810},
+  {package_id:'PCK10',name:'10 clases',classes_included:10,valid_days:30, price_mxn:900},
+  {package_id:'PCK11',name:'11 clases',classes_included:11,valid_days:30, price_mxn:990},
+  {package_id:'PCK12',name:'12 clases',classes_included:12,valid_days:30, price_mxn:1080}
+]}save(db);return db}
 function save(db){for(const k of DB){localStorage.setItem(k,JSON.stringify(db[k]||[]))}}
 const db=load();
 
+// PIN helpers
 function getPinByStudentId(sid){ return db.pins.find(p=>p.student_id===sid) || null; }
 function setPinForStudent(sid, pin){ const ex=getPinByStudentId(sid); if(ex) ex.pin=pin; else db.pins.push({student_id:sid,pin}); save(db); }
 function isPinInUse(pin){ return !!db.pins.find(p=>p.pin===pin); }
 function generateUniquePin(){ let p; do{ p=Math.floor(Math.random()*10000).toString().padStart(4,'0'); }while(isPinInUse(p)); return p; }
 function copyToClipboard(text){ try{ navigator.clipboard.writeText(text); alert('PIN copiado'); }catch(e){ prompt('Copia el PIN:', text); } }
 
+// Tabs
 $$('#tabs button[data-tab]').forEach(b=>b.addEventListener('click',()=>{
   $$('#tabs button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
@@ -80,6 +103,7 @@ $('#mode-switch').addEventListener('change', ()=>{
   applyModeToUI();
 });
 
+// Export / Import
 $('#btn-export')?.addEventListener('click',()=>{
   const data={}; for(const k of DB){ data[k]=db[k]; }
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -98,6 +122,7 @@ $('#cfg-brand-name').value = config.brand_name;
 $('#cfg-primary').value = config.primary;
 $('#cfg-accent').value = config.accent;
 $('#cfg-admin-pin').value = config.admin_pin;
+$('#cfg-default-class').value = config.default_class;
 $('#cfg-voice-ok').value = config.voice_ok;
 $('#cfg-voice-deny').value = config.voice_deny;
 $('#cfg-save').addEventListener('click',()=>{
@@ -108,6 +133,7 @@ $('#cfg-save').addEventListener('click',()=>{
     primary: $('#cfg-primary').value || '#EFB8C8',
     accent: $('#cfg-accent').value || '#111827',
     admin_pin: pin,
+    default_class: $('#cfg-default-class').value || 'General',
     voice_ok: $('#cfg-voice-ok').value || 'Acceso otorgado',
     voice_deny: $('#cfg-voice-deny').value || 'Acceso denegado'
   };
@@ -116,6 +142,7 @@ $('#cfg-save').addEventListener('click',()=>{
   alert('Configuración guardada');
 });
 
+// Students
 $('#form-student').addEventListener('submit',e=>{
   e.preventDefault();
   const fd=new FormData(e.target);
@@ -123,7 +150,6 @@ $('#form-student').addEventListener('submit',e=>{
   s.student_id=uid('stu');
   db.students.push(s); save(db); e.target.reset(); renderAll();
 });
-
 function renderStudents(){
   const tb=$('#table-students tbody'); tb.innerHTML='';
   for(const s of db.students){
@@ -168,11 +194,18 @@ function renderStudents(){
   },{once:true});
 }
 
+// Enrollments
 function renderEnrollmentSelectors(){
   const selS=$('#form-enrollment select[name="student_id"]');
   const selP=$('#form-enrollment select[name="package_id"]');
   selS.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('');
   selP.innerHTML='<option value="">(paquete)</option>'+db.packages.map(p=>`<option value="${p.package_id}">${p.name} (${p.classes_included})</option>`).join('');
+}
+function deleteEnrollmentCascade(enrollment_id){
+  db.attendance = db.attendance.filter(a=>a.enrollment_id!==enrollment_id);
+  db.payments   = db.payments.filter(p=>p.enrollment_id!==enrollment_id);
+  db.enrollments= db.enrollments.filter(e=>e.enrollment_id!==enrollment_id);
+  save(db);
 }
 function renderEnrollmentTable(){
   const tb=$('#table-enrollments tbody'); tb.innerHTML='';
@@ -180,17 +213,38 @@ function renderEnrollmentTable(){
     const s=db.students.find(x=>x.student_id===en.student_id);
     const p=db.packages.find(x=>x.package_id===en.package_id);
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${s?s.full_name:''}</td><td>${p?p.name:''}</td><td>${en.start_date}</td><td>${en.end_date}</td><td>${en.remaining_classes}</td><td>${en.status}</td><td><button data-act="pause" data-id="${en.enrollment_id}">Pausar</button><button data-act="close" data-id="${en.enrollment_id}">Cerrar</button></td>`;
+    tr.innerHTML=`<td>${s?s.full_name:''}</td><td>${p?p.name:en.package_id}</td><td>${en.start_date}</td><td>${en.end_date}</td><td>${en.remaining_classes}</td><td>${en.status}</td><td>
+    <button data-act="pause" data-id="${en.enrollment_id}">${en.status==='pausado'?'Reactivar':'Pausar'}</button>
+    <button data-act="close" data-id="${en.enrollment_id}">Cerrar</button>
+    <button data-act="del" data-id="${en.enrollment_id}" style="color:#b91c1c">Eliminar</button></td>`;
     tb.appendChild(tr);
   }
   tb.addEventListener('click',e=>{
     const btn=e.target.closest('button'); if(!btn) return;
     const id=btn.dataset.id; const en=db.enrollments.find(x=>x.enrollment_id===id); if(!en) return;
-    if(btn.dataset.act==='pause'){ en.status=en.status==='pausado'?'activo':'pausado'; }
-    if(btn.dataset.act==='close'){ en.status='vencido'; }
-    save(db); renderAll();
+    if(btn.dataset.act==='pause'){ en.status=en.status==='pausado'?'activo':'pausado'; save(db); renderEnrollmentTable(); return; }
+    if(btn.dataset.act==='close'){ en.status='vencido'; save(db); renderEnrollmentTable(); return; }
+    if(btn.dataset.act==='del'){
+      const s=db.students.find(x=>x.student_id===en.student_id);
+      const p=db.packages.find(x=>x.package_id===en.package_id);
+      if(confirm(`¿Eliminar el paquete "${p?p.name:en.package_id}" de ${s?s.full_name:'alumno'}?\nSe borrarán asistencias y pagos ligados a este paquete.`)){
+        deleteEnrollmentCascade(id); renderEnrollmentTable();
+      }
+    }
   },{once:true});
 }
+$('#btn-delete-active')?.addEventListener('click', ()=>{
+  const sid = $('#form-enrollment select[name="student_id"]').value;
+  if(!sid){ alert('Selecciona primero un alumno.'); return; }
+  const en = db.enrollments.find(e => e.student_id === sid && e.status === 'activo');
+  if(!en){ alert('Este alumno no tiene paquete activo.'); return; }
+  const s = db.students.find(x => x.student_id === sid);
+  const p = db.packages.find(x => x.package_id === en.package_id);
+  if(confirm(`¿Eliminar el paquete ACTIVO "${p ? p.name : en.package_id}" de ${s ? s.full_name : 'alumno'}?\nSe borrarán asistencias y pagos de ese paquete.`)){
+    deleteEnrollmentCascade(en.enrollment_id);
+    renderAll();
+  }
+});
 $('#form-enrollment').addEventListener('submit',e=>{
   e.preventDefault();
   const fd=new FormData(e.target);
@@ -199,13 +253,14 @@ $('#form-enrollment').addEventListener('submit',e=>{
   if(!sid||!pid||!sd||!ed){ alert('Completa alumno, paquete y fechas'); return; }
   for(const en of db.enrollments){ if(en.student_id===sid && en.status==='activo'){ en.status='vencido'; } }
   const pkg=db.packages.find(p=>p.package_id===pid);
-  const en={ enrollment_id:uid('enr'), student_id:sid, package_id:pid, start_date:sd, end_date:ed, remaining_classes: (pkg.package_id==='FULL'?9999:pkg.classes_included), status:'activo' };
+  const en={ enrollment_id:uid('enr'), student_id:sid, package_id:pid, start_date:sd, end_date:ed, remaining_classes: pkg.classes_included, status:'activo' };
   db.enrollments.push(en);
   const method=fd.get('payment_method'); const status=fd.get('payment_status'); const amount=parseFloat(fd.get('amount_mxn')||'0');
   if(method||status||amount>0){ db.payments.push({ payment_id:uid('pay'), enrollment_id:en.enrollment_id, student_id:sid, date:todayISO(), amount_mxn:amount||0, method:method||'', status:status||'pendiente', reference:'' }); }
   save(db); e.target.reset(); renderAll();
 });
 
+// Status & helpers
 function refreshStatuses(){
   const t=todayISO();
   for(const en of db.enrollments){ if(en.status==='activo' && en.end_date && en.end_date<t){ en.status='vencido'; } }
@@ -230,19 +285,51 @@ function hasPaidForEnrollment(en){
   return list.length>0;
 }
 
+// Attendance
+function renderAttendanceHead(){
+  const head=$('#attendance-head');
+  if(currentMode==='admin'){
+    head.innerHTML='<tr><th>Fecha</th><th>Alumno</th><th>Clase/Grupo</th><th>Contó</th><th>Marcó</th></tr>';
+  }else{
+    head.innerHTML='<tr><th>Fecha</th><th>Alumno</th><th>Clase/Grupo</th><th>Asistencia</th></tr>';
+  }
+}
 function renderAttendanceSelectors(){
   const sel=$('#form-attendance select[name="student_id"]');
   sel.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('');
+}
+function renderAttendance(){
+  const tb=$('#table-attendance tbody'); tb.innerHTML='';
+  let rows=db.attendance.slice();
+  if(currentMode!=='admin'){
+    const t=todayISO();
+    rows=rows.filter(a=>a.date===t); // solo hoy
+  }
+  rows.sort((a,b)=>b.date.localeCompare(a.date));
+  for(const at of rows){
+    const s=db.students.find(x=>x.student_id===at.student_id);
+    const tr=document.createElement('tr');
+    if(currentMode==='admin'){
+      tr.innerHTML=`<td>${at.date}</td><td>${s?s.full_name:''}</td><td>${at.class_name_or_group||''}</td><td>${at.was_counted}</td><td>${at.marked_by}</td>`;
+    }else{
+      const asistencia = (at.was_counted==='yes' || at.was_counted===true) ? 'Sí' : 'No';
+      tr.innerHTML=`<td>${at.date}</td><td>${s?s.full_name:''}</td><td>${at.class_name_or_group||''}</td><td>${asistencia}</td>`;
+    }
+    tb.appendChild(tr);
+  }
 }
 function markAttendanceFor(sid, cls, by='admin'){
   const s=db.students.find(x=>x.student_id===sid); if(!s){ alert('Alumno no encontrado'); speak(config.voice_deny); return; }
   let en=getActiveEnrollment(sid); if(!en) en=getLatestEnrollment(sid);
   if(!en){ alert(`Sin paquete activo para ${s.full_name}`); speak(config.voice_deny); return; }
   if(currentMode==='alumno' && !hasPaidForEnrollment(en)){ alert(`Acceso denegado: pago pendiente de ${s.full_name}.`); speak(config.voice_deny); return; }
-  const countable=en.package_id!=='FULL';
+  const countable=true; // todos los paquetes 1..12 descuentan
   if(countable && en.remaining_classes<=0){ alert(`${s.full_name} no tiene clases restantes.`); speak(config.voice_deny); return; }
   db.attendance.push({ attendance_id:uid('att'), enrollment_id:en.enrollment_id, student_id:sid, date:todayISO(), class_name_or_group:cls||'', marked_by:by, was_counted:countable?'yes':'no' });
-  if(countable){ en.remaining_classes -= 1; if(en.remaining_classes===1){ alert(`Aviso: a ${s.full_name} le queda 1 clase.`); } }
+  if(countable){
+    en.remaining_classes -= 1;
+    if(en.remaining_classes===1){ alert(`Aviso: a ${s.full_name} le queda 1 clase.`); }
+  }
   save(db); renderAll(); speak(config.voice_ok);
 }
 $('#form-attendance').addEventListener('submit',e=>{
@@ -251,21 +338,13 @@ $('#form-attendance').addEventListener('submit',e=>{
 });
 $('#form-pin').addEventListener('submit',e=>{
   e.preventDefault(); const fd=new FormData(e.target);
-  const rec=db.pins.find(p=>p.pin===(fd.get('pin')||'').trim()); if(!rec){ alert('PIN incorrecto'); speak(config.voice_deny); return; }
-  markAttendanceFor(rec.student_id, fd.get('class_name_or_group')||'', 'pin'); e.target.reset();
+  const pin=(fd.get('pin')||'').trim();
+  const rec=db.pins.find(p=>p.pin===pin); if(!rec){ alert('PIN incorrecto'); speak(config.voice_deny); return; }
+  const cls = (currentMode==='admin') ? (fd.get('class_name_or_group')||'') : (config.default_class || '');
+  markAttendanceFor(rec.student_id, cls, 'pin'); e.target.reset();
 });
 
-function renderAttendance(){
-  const tb=$('#table-attendance tbody'); tb.innerHTML='';
-  const rows=db.attendance.slice().sort((a,b)=>b.date.localeCompare(a.date));
-  for(const at of rows){
-    const s=db.students.find(x=>x.student_id===at.student_id);
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${at.date}</td><td>${s?s.full_name:''}</td><td>${at.class_name_or_group||''}</td><td>${at.was_counted}</td><td>${at.marked_by}</td>`;
-    tb.appendChild(tr);
-  }
-}
-
+// Payments
 function renderPayments(){
   const tb=$('#table-payments tbody'); tb.innerHTML='';
   const rows=db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date));
@@ -277,6 +356,7 @@ function renderPayments(){
   }
 }
 
+// Events / Reports / Dashboard
 $('#form-event').addEventListener('submit',e=>{
   e.preventDefault(); const fd=new FormData(e.target);
   const ev=Object.fromEntries(fd.entries()); ev.event_id=uid('evt'); db.events.push(ev); save(db); e.target.reset(); renderAll();
@@ -296,7 +376,6 @@ function renderEvents(){
     else if(btn.dataset.act==='notify'){ alert(`Notificación simulada: "${ev.title}" el ${ev.date} ${ev.start_time||''}`); }
   },{once:true});
 }
-
 function sumBy(a,f){return a.reduce((x,y)=>x+(+f(y)||0),0)}
 function groupBy(a,k){return a.reduce((acc,x)=>{const key=k(x);(acc[key]??=[]).push(x);return acc},{})}
 function renderReports(){
@@ -324,6 +403,7 @@ function renderDashboard(){
   $('#upcoming-events').textContent=up;
 }
 
+// Panel Alumno
 $('#form-panel-login').addEventListener('submit',e=>{
   e.preventDefault();
   const pin=(new FormData(e.target).get('pin')||'').trim();
@@ -334,7 +414,7 @@ $('#form-panel-login').addEventListener('submit',e=>{
   let en=getActiveEnrollment(sid);
   if(!en) en=getLatestEnrollment(sid);
   $('#pv-name').textContent=s?s.full_name:'(Alumno)';
-  const remaining=(en?(en.package_id==='FULL'?'Ilimitadas':(en.remaining_classes ?? en.remaining ?? 0)):'0');
+  const remaining=(en?(en.remaining_classes ?? en.remaining ?? 0):'0');
   $('#pv-remaining').textContent=remaining;
   $('#pv-ends').textContent=en?(en.end_date||'-'):'-';
   const td=new Date(todayISO()); const n30=new Date(td); n30.setDate(n30.getDate()+30);
@@ -346,11 +426,17 @@ $('#form-panel-login').addEventListener('submit',e=>{
 });
 $('#pv-logout').addEventListener('click',()=>{ $('#panel-login').style.display='block'; $('#panel-view').style.display='none'; });
 
+function renderAttendanceSelectors(){
+  const sel=$('#form-attendance select[name="student_id"]');
+  sel.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('');
+}
+
+// Initial render
 function renderAll(){
   refreshStatuses();
   try{ renderStudents(); }catch(e){}
   try{ renderEnrollmentSelectors(); renderEnrollmentTable(); }catch(e){}
-  try{ renderAttendanceSelectors(); renderAttendance(); }catch(e){}
+  try{ renderAttendanceHead(); renderAttendanceSelectors(); renderAttendance(); }catch(e){}
   try{ renderPayments(); }catch(e){}
   try{ renderEvents(); }catch(e){}
   try{ renderReports(); renderDashboard(); }catch(e){}

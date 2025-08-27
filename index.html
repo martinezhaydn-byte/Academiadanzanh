@@ -87,6 +87,11 @@
         <input name="amount_mxn" type="number" placeholder="Monto MXN" min="0" step="0.01" />
         <button>Asignar paquete</button>
       </form>
+      <div class="form-inline" id="box-delete-active">
+        <button type="button" id="btn-delete-active" style="background:#fff;border:1px solid #ef4444;color:#b91c1c">
+          Eliminar paquete ACTIVO del alumno seleccionado
+        </button>
+      </div>
       <div class="table-wrap">
         <table id="table-enrollments">
           <thead><tr><th>Alumno</th><th>Paquete</th><th>Inicio</th><th>Fin</th><th>Restantes</th><th>Estado</th><th>Acciones</th></tr></thead>
@@ -103,18 +108,18 @@
           <input name="class_name_or_group" placeholder="Clase/Grupo (opcional)" />
           <button>Marcar asistencia</button>
         </form>
-        <div class="pin-box">
+        <div class="pin-box" id="kiosk-box">
           <h3>Marcar por PIN (4 dígitos)</h3>
           <form id="form-pin" class="form-inline">
             <input name="pin" inputmode="numeric" maxlength="4" pattern="\d{4}" placeholder="••••" required />
-            <input name="class_name_or_group" placeholder="Clase/Grupo (opcional)" />
+            <input name="class_name_or_group" id="pin-class" placeholder="Clase/Grupo (opcional)" />
             <button>Marcar</button>
           </form>
         </div>
       </div>
       <div class="table-wrap">
         <table id="table-attendance">
-          <thead><tr><th>Fecha</th><th>Alumno</th><th>Clase/Grupo</th><th>Contó</th><th>Marcó</th></tr></thead>
+          <thead id="attendance-head"></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -185,11 +190,12 @@
         <input id="cfg-primary" placeholder="Color primario (hex)" value="#EFB8C8"/>
         <input id="cfg-accent" placeholder="Color acento (hex)" value="#111827"/>
         <input id="cfg-admin-pin" placeholder="PIN de Admin (4 dígitos)" maxlength="4" inputmode="numeric"/>
+        <input id="cfg-default-class" placeholder="Clase/Grupo por defecto (kiosco)" value="General"/>
         <input id="cfg-voice-ok" placeholder='Texto voz "acceso otorgado"' value="Acceso otorgado"/>
         <input id="cfg-voice-deny" placeholder='Texto voz "acceso denegado"' value="Acceso denegado"/>
         <button id="cfg-save">Guardar</button>
       </div>
-      <p class="muted">El nombre y colores se guardan en este dispositivo (PWA sin servidor).</p>
+      <p class="muted">En Modo Alumno se oculta todo excepto el PIN. La clase/grupo se toma de “Clase/Grupo por defecto”.</p>
     </section>
 
   </main>

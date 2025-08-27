@@ -1,7 +1,7 @@
 
 :root {
-  --primary: #EFB8C8; /* rosado ballet */
-  --accent: #111827;  /* gris oscuro */
+  --primary: #EFB8C8;
+  --accent: #111827;
   --gap: 12px;
 }
 * { box-sizing: border-box; }

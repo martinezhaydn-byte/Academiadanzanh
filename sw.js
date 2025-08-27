@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'dance-academy-cache-v3';
+const CACHE_NAME = 'dance-academy-cache-v5';
 const ASSETS = [
   './','./index.html','./styles.css','./app.js','./manifest.json',
   './icons/icon-192.png','./icons/icon-512.png'
