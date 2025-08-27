@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>Academia de Danza — Web App</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Academia de Danza — Web App (PWA)</h1>
+    <nav id="tabs">
+      <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="students">Alumnos</button>
+      <button data-tab="enrollments">Paquetes</button>
+      <button data-tab="attendance">Asistencias</button>
+      <button data-tab="payments">Pagos</button>
+      <button data-tab="events">Calendario</button>
+      <button data-tab="reports">Reportes</button>
+      <button data-tab="panel">Panel del Alumno</button>
+      <button id="btn-export">Exportar JSON</button>
+      <button id="btn-import">Importar JSON</button>
+      <input type="file" id="file-import" accept="application/json" style="display:none" />
+    </nav>
+  </header>
+
+  <main>
+    <section id="dashboard" class="tab active">
+      <div class="grid">
+        <div class="card"><h3>Asistencias hoy</h3><p><span id="attendances-today">0</span></p></div>
+        <div class="card"><h3>Pagos pendientes</h3><p><span id="payments-due">0</span></p></div>
+        <div class="card"><h3>Paquetes por vencer (7 días)</h3><p><span id="expiring-packages">0</span></p></div>
+        <div class="card"><h3>Eventos próximos (7 días)</h3><p><span id="upcoming-events">0</span></p></div>
+      </div>
+    </section>
+
+    <section id="students" class="tab">
+      <h2>Alumnos</h2>
+      <form id="form-student" class="form-grid">
+        <input name="full_name" placeholder="Nombre completo" required />
+        <input name="date_of_birth" type="date" placeholder="Fecha de nacimiento" />
+        <input name="age" type="number" placeholder="Edad" min="0" />
+        <input name="phone" placeholder="Teléfono" />
+        <input name="emergency_contact_name" placeholder="Contacto de emergencia" />
+        <input name="emergency_contact_phone" placeholder="Tel. emergencia" />
+        <input name="address" placeholder="Dirección" />
+        <input name="notes" placeholder="Notas" />
+        <button>+ Agregar alumno</button>
+      </form>
+      <div class="table-wrap">
+        <table id="table-students">
+          <thead><tr><th>Nombre</th><th>Edad</th><th>Teléfono</th><th>Emergencia</th><th>Acciones</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="enrollments" class="tab">
+      <h2>Vender/Asignar paquete</h2>
+      <form id="form-enrollment" class="form-grid">
+        <select name="student_id" required></select>
+        <select name="package_id" required></select>
+        <input name="start_date" type="date" required />
+        <input name="end_date" type="date" required />
+        <select name="payment_method">
+          <option value="">(método de pago)</option>
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+        </select>
+        <select name="payment_status">
+          <option value="">(estado)</option>
+          <option value="pagado">Pagado</option>
+          <option value="pendiente">Pendiente</option>
+        </select>
+        <input name="amount_mxn" type="number" placeholder="Monto MXN" min="0" step="0.01" />
+        <button>Asignar paquete</button>
+      </form>
+      <h3>Paquetes activos</h3>
+      <div class="table-wrap">
+        <table id="table-enrollments">
+          <thead><tr><th>Alumno</th><th>Paquete</th><th>Inicio</th><th>Fin</th><th>Restantes</th><th>Estado</th><th>Acciones</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="attendance" class="tab">
+      <h2>Asistencias</h2>
+      <div class="flex">
+        <form id="form-attendance" class="form-inline">
+          <select name="student_id" required></select>
+          <input name="class_name_or_group" placeholder="Clase/Grupo (opcional)" />
+          <button>Marcar asistencia</button>
+        </form>
+        <div class="pin-box">
+          <h3>Marcar por PIN (4 dígitos)</h3>
+          <form id="form-pin" class="form-inline">
+            <input name="pin" inputmode="numeric" maxlength="4" pattern="\d{4}" placeholder="••••" required />
+            <input name="class_name_or_group" placeholder="Clase/Grupo (opcional)" />
+            <button>Marcar</button>
+          </form>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="table-attendance">
+          <thead><tr><th>Fecha</th><th>Alumno</th><th>Clase/Grupo</th><th>Contó</th><th>Marcó</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="payments" class="tab">
+      <h2>Pagos</h2>
+      <div class="table-wrap">
+        <table id="table-payments">
+          <thead><tr><th>Fecha</th><th>Alumno</th><th>Método</th><th>Monto</th><th>Estado</th><th>Ref</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="events" class="tab">
+      <h2>Calendario de eventos</h2>
+      <form id="form-event" class="form-grid">
+        <input name="title" placeholder="Título" required />
+        <input name="date" type="date" required />
+        <input name="start_time" type="time" />
+        <input name="end_time" type="time" />
+        <input name="location" placeholder="Lugar" />
+        <select name="type"><option value="">(tipo)</option><option>clausura</option><option>taller</option><option>ensayo</option><option>otro</option></select>
+        <input name="notes" placeholder="Notas" />
+        <button>+ Agregar evento</button>
+      </form>
+      <div class="table-wrap">
+        <table id="table-events">
+          <thead><tr><th>Fecha</th><th>Título</th><th>Tipo</th><th>Lugar</th><th>Acciones</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="reports" class="tab">
+      <h2>Reportes</h2>
+      <div class="grid">
+        <div class="card"><h3>Asistencia por mes</h3><p id="r-attendance-month"></p></div>
+        <div class="card"><h3>Ingresos por mes</h3><p id="r-income-month"></p></div>
+        <div class="card"><h3>Paquetes más vendidos</h3><ul id="r-top-packages"></ul></div>
+      </div>
+    </section>
+
+    <section id="panel" class="tab">
+      <h2>Panel del Alumno</h2>
+      <div id="panel-login">
+        <p>Accede con tu PIN de 4 dígitos</p>
+        <form id="form-panel-login" class="form-inline">
+          <input name="pin" inputmode="numeric" maxlength="4" pattern="\d{4}" placeholder="••••" required />
+          <button>Entrar</button>
+        </form>
+      </div>
+      <div id="panel-view" style="display:none">
+        <h3 id="pv-name"></h3>
+        <p><strong>Clases restantes:</strong> <span id="pv-remaining"></span></p>
+        <p><strong>Vence:</strong> <span id="pv-ends"></span></p>
+        <h4>Próximos eventos</h4>
+        <ul id="pv-events"></ul>
+        <button id="pv-logout">Salir</button>
+      </div>
+    </section>
+  </main>
+
+  <footer><small>PWA localStorage. Agrega a pantalla de inicio para modo app.</small></footer>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js');
+      });
+    }
+  </script>
+  <script src="app.js"></script>
+</body>
+</html>
