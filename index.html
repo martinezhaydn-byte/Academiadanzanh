@@ -8,7 +8,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>Academia NH</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=9" />
 </head>
 <body>
   <header>
@@ -103,12 +103,12 @@
     <section id="attendance" class="tab active">
       <h2>Asistencias</h2>
       <div class="flex">
-        <form id="form-attendance" class="form-inline" style="display:none"></form>
         <div class="pin-box" id="kiosk-box">
           <h3>Marcar por PIN (4 dígitos)</h3>
           <form id="form-pin" class="form-inline">
             <input name="pin" inputmode="numeric" maxlength="4" pattern="\d{4}" placeholder="••••" required />
             <button>Marcar</button>
+            <button type="button" id="btn-clear" class="danger-outline">Limpiar</button>
           </form>
           <div id="kiosk-profile" class="kiosk-profile" aria-live="polite"></div>
         </div>
@@ -125,7 +125,7 @@
       <h2>Pagos</h2>
       <div class="table-wrap">
         <table id="table-payments">
-          <thead><tr><th>Fecha</th><th>Alumno</th><th>Método</th><th>Monto</th><th>Estado</th><th>Ref</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Alumno</th><th>Método</th><th>Monto</th><th>Estado</th><th>Ref</th><th>Acciones</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -189,7 +189,10 @@
         <input id="cfg-default-class" placeholder="Clase/Grupo por defecto (kiosco)" value="General"/>
         <input id="cfg-voice-ok" placeholder='Texto voz "acceso otorgado"' value="Acceso otorgado"/>
         <input id="cfg-voice-deny" placeholder='Texto voz "acceso denegado"' value="Acceso denegado"/>
-        <button id="cfg-save">Guardar</button>
+        <div class="form-inline">
+          <button id="cfg-save">Guardar</button>
+          <button id="cfg-clear-cache" class="danger-outline">Borrar caché</button>
+        </div>
       </div>
       <p class="muted">En <strong>Modo Alumno</strong> se usa solo la pestaña <em>Asistencias</em>. En <strong>Modo Admin</strong> se oculta.</p>
     </section>
@@ -200,10 +203,26 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js');
+        navigator.serviceWorker.register('./sw.js?v=9');
       });
     }
+    (async () => {
+      const params = new URLSearchParams(location.search);
+      if (params.get('clear') === '1') {
+        try {
+          if ('caches' in window) {
+            const keys = await caches.keys();
+            await Promise.all(keys.map(k => caches.delete(k)));
+          }
+          if ('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r => r.unregister()));
+          }
+        } catch (e) {}
+        setTimeout(() => location.replace(location.pathname + '?v=clean9'), 300);
+      }
+    })();
   </script>
-  <script src="app.js"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>

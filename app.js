@@ -21,7 +21,7 @@ let config = loadConfig();
 let currentMode = 'alumno';
 let kioskClearTimer = null;
 let lastKioskStudentId = null;
-let autoPendingPaymentFlag = false; // set when click "Reagendar"
+let autoPendingPaymentFlag = false;
 
 function applyBrand(){
   document.documentElement.style.setProperty('--primary', config.primary);
@@ -45,7 +45,6 @@ function applyModeToUI(){
     if(attendanceBtn){ attendanceBtn.style.display=''; }
     switchToTab('attendance');
   }
-  $('#form-attendance').style.display = 'none';
   $$('.pin-cell, .only-admin').forEach(td=>{ td.style.display = (currentMode==='admin') ? '' : 'none'; });
   renderAttendanceHead();
 }
@@ -103,6 +102,7 @@ async function fileToDataURLResized(file, maxSize=340, quality=0.82){
   });
 }
 
+// Tabs
 $$('#tabs button[data-tab]').forEach(b=>b.addEventListener('click',()=>{
   $$('#tabs button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
@@ -122,6 +122,7 @@ $('#mode-switch').addEventListener('change', ()=>{
   applyModeToUI();
 });
 
+// Export/Import
 $('#btn-export')?.addEventListener('click',()=>{
   const data={}; for(const k of DB){ data[k]=db[k]; }
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -135,6 +136,7 @@ $('#file-import')?.addEventListener('change',async e=>{
   finally{ e.target.value='' }
 });
 
+// Config UI + Clear cache button
 $('#cfg-brand-name').value = config.brand_name;
 $('#cfg-primary').value = config.primary;
 $('#cfg-accent').value = config.accent;
@@ -158,7 +160,22 @@ $('#cfg-save').addEventListener('click',()=>{
   applyBrand();
   alert('Configuración guardada');
 });
+$('#cfg-clear-cache')?.addEventListener('click', async ()=>{
+  if(!confirm('Se borrará la caché y se recargará la app.')) return;
+  try{
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  }catch(e){}
+  setTimeout(()=>location.replace(location.pathname + '?v=clean9btn'),300);
+});
 
+// Students
 let pendingPhotoData = '';
 $('#student-photo')?.addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return;
@@ -290,7 +307,6 @@ function renderEnrollmentTable(){
       const end = new Date(todayISO()); end.setDate(end.getDate() + (pkg.valid_days||30));
       $('#form-enrollment input[name="start_date"]').value = fmtISO(start);
       $('#form-enrollment input[name="end_date"]').value = fmtISO(end);
-      // marcar flag para crear pago pendiente automático con precio del paquete
       autoPendingPaymentFlag = true;
       $('#auto-pending').checked = true;
       switchToTab('enrollments');
@@ -321,7 +337,6 @@ $('#form-enrollment').addEventListener('submit',e=>{
   const pkg=db.packages.find(p=>p.package_id===pid) || {classes_included:0, price_mxn:0};
   const enNew={ enrollment_id:uid('enr'), student_id:sid, package_id:pid, start_date:sd, end_date:ed, remaining_classes: pkg.classes_included, status:'activo' };
   db.enrollments.push(enNew);
-  // Auto crear pago pendiente si viene de "Reagendar" o si el checkbox está encendido
   if(autoPendingPaymentFlag || chkAuto){
     db.payments.push({
       payment_id: uid('pay'),
@@ -339,6 +354,7 @@ $('#form-enrollment').addEventListener('submit',e=>{
   alert('Paquete asignado / re-agendado con éxito.');
 });
 
+// Status helpers
 function refreshStatuses(){
   const t=todayISO();
   for(const en of db.enrollments){ if(en.status==='activo' && en.end_date && en.end_date<t){ en.status='vencido'; } }
@@ -363,6 +379,7 @@ function hasPaidForEnrollment(en){
   return list.length>0;
 }
 
+// Attendance (Alumno only)
 function renderAttendanceHead(){
   const head=$('#attendance-head');
   head.innerHTML='<tr><th>Fecha</th><th>Alumno</th><th>Clase/Grupo</th><th>Asistencia</th></tr>';
@@ -425,28 +442,79 @@ $('#form-pin input[name="pin"]').addEventListener('input', ()=>{
   if(kioskClearTimer) clearTimeout(kioskClearTimer);
   clearKioskView();
 });
+$('#btn-clear')?.addEventListener('click', clearKioskView);
 
+// Payments view with "Marcar pagado"
 function renderPayments(){
   const tb=$('#table-payments tbody'); if(!tb) return; tb.innerHTML='';
   const rows=db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date));
   for(const p of rows){
     const s=db.students.find(x=>x.student_id===p.student_id);
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${p.date}</td><td>${s?s.full_name:''}</td><td>${p.method||''}</td><td>${(p.amount_mxn||0).toFixed(2)}</td><td>${p.status||''}</td><td>${p.reference||''}</td>`;
+    tr.innerHTML=`<td>${p.date}</td><td>${s?s.full_name:''}</td><td>${p.method||''}</td><td>${(p.amount_mxn||0).toFixed(2)}</td><td>${p.status||''}</td><td>${p.reference||''}</td>
+    <td>${p.status==='pendiente'?`<button data-act="pay" data-id="${p.payment_id}">Marcar pagado</button>`:''}</td>`;
     tb.appendChild(tr);
   }
+  tb.addEventListener('click', e=>{
+    const btn = e.target.closest('button'); if(!btn) return;
+    if(btn.dataset.act==='pay'){
+      const pay = db.payments.find(x=>x.payment_id===btn.dataset.id);
+      if(pay){ pay.status='pagado'; save(db); renderPayments(); alert('Pago marcado como pagado.'); }
+    }
+  }, {once:true});
 }
-function sumBy(a,f){return a.reduce((x,y)=>x+(+f(y)||0),0)}
-function groupBy(a,k){return a.reduce((acc,x)=>{const key=k(x);(acc[key]??=[]).push(x);return acc},{})}
+
+// Events (add/delete/notify)
+$('#form-event').addEventListener('submit', e=>{
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const ev = {
+    event_id: uid('evt'),
+    title: fd.get('title')||'',
+    date: fd.get('date')||'',
+    start_time: fd.get('start_time')||'',
+    end_time: fd.get('end_time')||'',
+    location: fd.get('location')||'',
+    type: fd.get('type')||'',
+    notes: fd.get('notes')||''
+  };
+  if(!ev.title || !ev.date){ alert('Título y fecha son obligatorios'); return; }
+  db.events = db.events || [];
+  db.events.push(ev); save(db); e.target.reset(); renderEvents();
+});
 function renderEvents(){
   const tb=$('#table-events tbody'); if(!tb) return; tb.innerHTML='';
   const rows=(db.events||[]).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   for(const ev of rows){
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${ev.date||''} ${ev.start_time||''}</td><td>${ev.title||''}</td><td>${ev.type||''}</td><td>${ev.location||''}</td><td><button data-act="notify" data-id="${ev.event_id}">Notificar</button> <button data-act="del" data-id="${ev.event_id}">Eliminar</button></td>`;
+    tr.innerHTML=`<td>${ev.date||''} ${ev.start_time||''}</td><td>${ev.title||''}</td><td>${ev.type||''}</td><td>${ev.location||''}</td><td>
+      <button data-act="notify" data-id="${ev.event_id}">Notificar</button>
+      <button data-act="del" data-id="${ev.event_id}" class="danger-outline">Eliminar</button>
+    </td>`;
     tb.appendChild(tr);
   }
+  tb.addEventListener('click', e=>{
+    const btn = e.target.closest('button'); if(!btn) return;
+    const id = btn.dataset.id;
+    const ev = (db.events||[]).find(x=>x.event_id===id);
+    if(!ev) return;
+    if(btn.dataset.act==='del'){
+      if(confirm('¿Eliminar evento?')){
+        db.events = (db.events||[]).filter(x=>x.event_id!==id);
+        save(db); renderEvents();
+      }
+    }
+    if(btn.dataset.act==='notify'){
+      const msg = `${ev.title} — ${ev.date}${ev.start_time?(' '+ev.start_time):''}${ev.location?(' @ '+ev.location):''}`;
+      alert('Aviso: '+msg);
+      speak(msg);
+    }
+  }, {once:true});
 }
+
+// Reports & Dashboard
+function sumBy(a,f){return a.reduce((x,y)=>x+(+f(y)||0),0)}
+function groupBy(a,k){return a.reduce((acc,x)=>{const key=k(x);(acc[key]??=[]).push(x);return acc},{})}
 function renderReports(){
   const n=new Date(); const ym=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
   const att=db.attendance.filter(a=>(a.date||'').startsWith(ym));
@@ -470,6 +538,29 @@ function renderDashboard(){
   const up=(db.events||[]).filter(ev=>{ if(!ev.date) return false; const d=new Date(ev.date); const td=new Date(t); const n7=new Date(td); n7.setDate(n7.getDate()+7); return d>=td&&d<=n7; }).length;
   $('#upcoming-events')?.textContent=up;
 }
+
+// Panel Alumno
+$('#form-panel-login').addEventListener('submit',e=>{
+  e.preventDefault();
+  const pin=(new FormData(e.target).get('pin')||'').trim();
+  const rec=db.pins.find(p=>p.pin===pin);
+  if(!rec){ alert('PIN incorrecto'); return; }
+  const sid=rec.student_id;
+  const s=db.students.find(x=>x.student_id===sid);
+  let en=getActiveEnrollment(sid);
+  if(!en) en=getLatestEnrollment(sid);
+  $('#pv-name').textContent=s?s.full_name:'(Alumno)';
+  const remaining=(en?(en.remaining_classes ?? en.remaining ?? 0):'0');
+  $('#pv-remaining').textContent=remaining;
+  $('#pv-ends').textContent=en?(en.end_date||'-'):'-';
+  const td=new Date(todayISO()); const n30=new Date(td); n30.setDate(n30.getDate()+30);
+  const ul=$('#pv-events'); ul.innerHTML='';
+  (db.events||[]).filter(ev=>ev.date&&new Date(ev.date)>=td&&new Date(ev.date)<=n30)
+                 .sort((a,b)=>(a.date||'').localeCompare(b.date||''))
+                 .slice(0,8).forEach(ev=>{ const li=document.createElement('li'); li.textContent=`${ev.date} ${ev.start_time||''} — ${ev.title}`; ul.appendChild(li); });
+  $('#panel-login').style.display='none'; $('#panel-view').style.display='block';
+});
+$('#pv-logout').addEventListener('click',()=>{ $('#panel-login').style.display='block'; $('#panel-view').style.display='none'; });
 
 function renderAll(){
   refreshStatuses();
