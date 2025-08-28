@@ -1,455 +1,522 @@
-(function(){
-const $=(s,r=document)=>r.querySelector(s);
-const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
-const DB=['students','packages','enrollments','attendance','payments','events','pins'];
-const CFG_KEY='app_config';
+// Minimal IndexedDB wrapper
+const DB_NAME = 'adan-nh-db';
+const DB_VERSION = 1;
+let db;
 
-function loadConfig(){
-  const c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
-  return {
-    brand_name: c.brand_name || 'Academia NH',
-    primary: c.primary || '#EFB8C8',
-    accent: c.accent || '#111827',
-    admin_pin: c.admin_pin || '1234',
-    default_class: c.default_class || 'General',
-    voice_ok: c.voice_ok || 'Acceso otorgado',
-    voice_deny: c.voice_deny || 'Acceso denegado'
+const openDB = () => new Promise((resolve, reject) => {
+  const req = indexedDB.open(DB_NAME, DB_VERSION);
+  req.onupgradeneeded = (e) => {
+    const db = e.target.result;
+    if (!db.objectStoreNames.contains('students')) {
+      const s = db.createObjectStore('students', { keyPath: 'id', autoIncrement: true });
+      s.createIndex('pin', 'pin', { unique: true });
+    }
+    if (!db.objectStoreNames.contains('meta')) {
+      db.createObjectStore('meta', { keyPath: 'key' });
+    }
+    if (!db.objectStoreNames.contains('attendance')) {
+      const a = db.createObjectStore('attendance', { keyPath: 'id', autoIncrement: true });
+      a.createIndex('byStudent', 'studentId', { unique: false });
+    }
   };
-}
-function saveConfig(c){ localStorage.setItem(CFG_KEY, JSON.stringify(c)); }
-let config = loadConfig();
-let currentMode = 'alumno';
-let kioskClearTimer = null;
-
-function applyBrand(){
-  document.documentElement.style.setProperty('--primary', config.primary);
-  document.documentElement.style.setProperty('--accent', config.accent);
-  const title = $('#brand-title'); if(title) title.textContent = config.brand_name;
-  document.title = config.brand_name;
-}
-function applyModeToUI(){
-  $$('#tabs [data-admin]').forEach(el=>{ el.style.display = (currentMode==='admin') ? '' : 'none'; });
-  const activeBtn = $$('#tabs button.active')[0];
-  if(currentMode==='alumno' && activeBtn && activeBtn.hasAttribute('data-admin')){
-    $$('#tabs button').forEach(b=>b.classList.remove('active'));
-    $$('#tabs button[data-tab="attendance"]')[0].classList.add('active');
-    $$('.tab').forEach(s=>s.classList.remove('active'));
-    $('#attendance').classList.add('active');
-  }
-  $('#form-attendance').style.display = (currentMode==='admin') ? '' : 'none';
-  $('#pin-class').style.display = (currentMode==='admin') ? '' : 'none';
-  $$('.pin-cell, .only-admin').forEach(td=>{ td.style.display = (currentMode==='admin') ? '' : 'none'; });
-  renderAttendanceHead();
-}
-
-function speak(text){
-  try{
-    const u = new SpeechSynthesisUtterance(text);
-    const voices = speechSynthesis.getVoices();
-    const es = voices.find(v => /es-|Spanish|español/i.test((v.lang||'') + v.name));
-    if(es) u.voice = es;
-    u.rate = 1;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(u);
-  }catch(e){}
-}
-
-function uid(p='id'){return p+'_'+Math.random().toString(36).slice(2,10)}
-function todayISO(){return new Date().toISOString().slice(0,10)}
-function parseISO(d){return d? new Date(d+'T00:00:00') : null}
-function load(){const db={};for(const k of DB){const raw=localStorage.getItem(k);db[k]=raw?JSON.parse(raw):[]}if(db.packages.length===0){db.packages=[
-  {package_id:'CLS1', name:'Clase suelta', classes_included:1, valid_days:7, price_mxn:100},
-  {package_id:'PCK2', name:'2 clases', classes_included:2, valid_days:30, price_mxn:180},
-  {package_id:'PCK3', name:'3 clases', classes_included:3, valid_days:30, price_mxn:270},
-  {package_id:'PCK4', name:'4 clases', classes_included:4, valid_days:30, price_mxn:360},
-  {package_id:'PCK5', name:'5 clases', classes_included:5, valid_days:30, price_mxn:450},
-  {package_id:'PCK6', name:'6 clases', classes_included:6, valid_days:30, price_mxn:540},
-  {package_id:'PCK7', name:'7 clases', classes_included:7, valid_days:30, price_mxn:630},
-  {package_id:'PCK8', name:'8 clases', classes_included:8, valid_days:30, price_mxn:720},
-  {package_id:'PCK9', name:'9 clases', classes_included:9, valid_days:30, price_mxn:810},
-  {package_id:'PCK10',name:'10 clases',classes_included:10,valid_days:30, price_mxn:900},
-  {package_id:'PCK11',name:'11 clases',classes_included:11,valid_days:30, price_mxn:990},
-  {package_id:'PCK12',name:'12 clases',classes_included:12,valid_days:30, price_mxn:1080}
-]}save(db);return db}
-function save(db){for(const k of DB){localStorage.setItem(k,JSON.stringify(db[k]||[]))}}
-const db=load();
-
-function getPinByStudentId(sid){ return db.pins.find(p=>p.student_id===sid) || null; }
-function setPinForStudent(sid, pin){ const ex=getPinByStudentId(sid); if(ex) ex.pin=pin; else db.pins.push({student_id:sid,pin}); save(db); }
-function isPinInUse(pin){ return !!db.pins.find(p=>p.pin===pin); }
-function generateUniquePin(){ let p; do{ p=Math.floor(Math.random()*10000).toString().padStart(4,'0'); }while(isPinInUse(p)); return p; }
-function copyToClipboard(text){ try{ navigator.clipboard.writeText(text); alert('PIN copiado'); }catch(e){ prompt('Copia el PIN:', text); } }
-
-$$('#tabs button[data-tab]').forEach(b=>b.addEventListener('click',()=>{
-  $$('#tabs button').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active');
-  const t=b.dataset.tab;
-  $$('.tab').forEach(s=>s.classList.remove('active'));
-  $('#'+t).classList.add('active');
-  renderAll();
-}));
-$('#mode-switch').value = currentMode;
-$('#mode-switch').addEventListener('change', ()=>{
-  const target = $('#mode-switch').value;
-  if(target==='admin'){
-    const pin = prompt('PIN de Admin:');
-    if(pin === config.admin_pin){ currentMode='admin'; }
-    else { alert('PIN incorrecto'); $('#mode-switch').value='alumno'; currentMode='alumno'; }
-  } else { currentMode='alumno'; }
-  applyModeToUI();
+  req.onsuccess = () => resolve(req.result);
+  req.onerror = () => reject(req.error);
 });
 
-$('#btn-export')?.addEventListener('click',()=>{
-  const data={}; for(const k of DB){ data[k]=db[k]; }
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='academia_nh_backup.json'; a.click(); URL.revokeObjectURL(a.href);
-});
-$('#btn-import')?.addEventListener('click',()=>$('#file-import').click());
-$('#file-import')?.addEventListener('change',async e=>{
-  const f=e.target.files[0]; if(!f) return;
-  try{ const t=await f.text(); const d=JSON.parse(t); for(const k of DB){ db[k]=Array.isArray(d[k])?d[k]:[] } save(db); alert('Importado'); renderAll(); }
-  catch(err){ alert('Archivo inválido') }
-  finally{ e.target.value='' }
-});
-
-$('#cfg-brand-name').value = config.brand_name;
-$('#cfg-primary').value = config.primary;
-$('#cfg-accent').value = config.accent;
-$('#cfg-admin-pin').value = config.admin_pin;
-$('#cfg-default-class').value = config.default_class;
-$('#cfg-voice-ok').value = config.voice_ok;
-$('#cfg-voice-deny').value = config.voice_deny;
-$('#cfg-save').addEventListener('click',()=>{
-  const pin=$('#cfg-admin-pin').value.trim();
-  if(!/^\d{4}$/.test(pin)){ alert('PIN de admin inválido'); return; }
-  config={
-    brand_name: $('#cfg-brand-name').value || 'Academia NH',
-    primary: $('#cfg-primary').value || '#EFB8C8',
-    accent: $('#cfg-accent').value || '#111827',
-    admin_pin: pin,
-    default_class: $('#cfg-default-class').value || 'General',
-    voice_ok: $('#cfg-voice-ok').value || 'Acceso otorgado',
-    voice_deny: $('#cfg-voice-deny').value || 'Acceso denegado'
-  };
-  saveConfig(config);
-  applyBrand();
-  alert('Configuración guardada');
-});
-
-let pendingPhotoData = '';
-$('#student-photo')?.addEventListener('change', async (e)=>{
-  const f=e.target.files[0]; if(!f) return;
-  const data = await f.arrayBuffer();
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(data)));
-  pendingPhotoData = 'data:'+ (f.type||'image/png') +';base64,'+ base64;
-});
-$('#form-student').addEventListener('submit',e=>{
-  e.preventDefault();
-  const fd=new FormData(e.target);
-  const s=Object.fromEntries(fd.entries());
-  s.student_id=uid('stu');
-  if(pendingPhotoData){ s.photo_data = pendingPhotoData; pendingPhotoData=''; $('#student-photo').value=''; }
-  db.students.push(s); save(db); e.target.reset(); renderAll();
-});
-function renderStudents(){
-  const tb=$('#table-students tbody'); tb.innerHTML='';
-  for(const s of db.students){
-    const rec=getPinByStudentId(s.student_id); const pin=rec?rec.pin:'—';
-    const tr=document.createElement('tr');
-    const img = s.photo_data ? `<img src="${s.photo_data}" alt="foto" style="width:42px;height:42px;object-fit:cover;border-radius:8px;border:1px solid #e5e7eb" />` : '—';
-    tr.innerHTML=`
-      <td>${img}</td>
-      <td>${s.full_name||''}</td>
-      <td>${s.age||''}</td>
-      <td>${s.phone||''}</td>
-      <td>${[s.emergency_contact_name,s.emergency_contact_phone].filter(Boolean).join(' / ')}</td>
-      <td class="pin-cell"><strong>${pin}</strong>
-        <button data-act="setpin" data-id="${s.student_id}">Asignar/Editar</button>
-        <button data-act="genpin" data-id="${s.student_id}">Regenerar</button>
-        <button data-act="copypin" data-id="${s.student_id}">Copiar</button>
-      </td>
-      <td><button data-act="del" data-id="${s.student_id}">Eliminar</button></td>`;
-    tb.appendChild(tr);
-  }
-  tb.addEventListener('click',e=>{
-    const btn=e.target.closest('button'); if(!btn) return;
-    const sid=btn.dataset.id;
-    if(btn.dataset.act==='del'){
-      if(confirm('¿Eliminar alumno?')){
-        db.students=db.students.filter(x=>x.student_id!==sid);
-        db.enrollments=db.enrollments.filter(x=>x.student_id!==sid);
-        db.attendance=db.attendance.filter(x=>x.student_id!==sid);
-        db.payments=db.payments.filter(x=>x.student_id!==sid);
-        db.pins=db.pins.filter(x=>x.student_id!==sid);
-        save(db); renderAll();
-      }
-    }
-    if(btn.dataset.act==='setpin'){
-      const current=getPinByStudentId(sid)?.pin||'';
-      const p=prompt('PIN (4 dígitos):', current||'0000');
-      if(p && /^\d{4}$/.test(p)){
-        if(isPinInUse(p) && getPinByStudentId(sid)?.pin!==p){ alert('Ese PIN ya está en uso'); return; }
-        setPinForStudent(sid,p); renderAll();
-      } else if(p!==null){ alert('PIN inválido'); }
-    }
-    if(btn.dataset.act==='genpin'){ const p=generateUniquePin(); setPinForStudent(sid,p); alert(`Nuevo PIN: ${p}`); renderAll(); }
-    if(btn.dataset.act==='copypin'){ const p=getPinByStudentId(sid)?.pin; if(p) copyToClipboard(p); else alert('Este alumno aún no tiene PIN'); }
-  },{once:true});
+async function dbTx(storeNames, mode='readonly') {
+  if (!db) db = await openDB();
+  const tx = db.transaction(storeNames, mode);
+  const stores = storeNames.map(n => tx.objectStore(n));
+  return { tx, stores };
 }
 
-function renderEnrollmentSelectors(){
-  const selS=$('#form-enrollment select[name="student_id"]');
-  const selP=$('#form-enrollment select[name="package_id"]');
-  selS.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('');
-  selP.innerHTML='<option value="">(paquete)</option>'+db.packages.map(p=>`<option value="${p.package_id}">${p.name} (${p.classes_included})</option>`).join('');
-}
-function deleteEnrollmentCascade(enrollment_id){
-  db.attendance = db.attendance.filter(a=>a.enrollment_id!==enrollment_id);
-  db.payments   = db.payments.filter(p=>p.enrollment_id!==enrollment_id);
-  db.enrollments= db.enrollments.filter(e=>e.enrollment_id!==enrollment_id);
-  save(db);
-}
-function renderEnrollmentTable(){
-  const tb=$('#table-enrollments tbody'); tb.innerHTML='';
-  for(const en of db.enrollments){
-    const s=db.students.find(x=>x.student_id===en.student_id);
-    const p=db.packages.find(x=>x.package_id===en.package_id);
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${s?s.full_name:''}</td><td>${p?p.name:en.package_id}</td><td>${en.start_date}</td><td>${en.end_date}</td><td>${en.remaining_classes}</td><td>${en.status}</td><td>
-    <button data-act="pause" data-id="${en.enrollment_id}">${en.status==='pausado'?'Reactivar':'Pausar'}</button>
-    <button data-act="close" data-id="${en.enrollment_id}">Cerrar</button>
-    <button data-act="del" data-id="${en.enrollment_id}" style="color:#b91c1c">Eliminar</button></td>`;
-    tb.appendChild(tr);
-  }
-  tb.addEventListener('click',e=>{
-    const btn=e.target.closest('button'); if(!btn) return;
-    const id=btn.dataset.id; const en=db.enrollments.find(x=>x.enrollment_id===id); if(!en) return;
-    if(btn.dataset.act==='pause'){ en.status=en.status==='pausado'?'activo':'pausado'; save(db); renderEnrollmentTable(); return; }
-    if(btn.dataset.act==='close'){ en.status='vencido'; save(db); renderEnrollmentTable(); return; }
-    if(btn.dataset.act==='del'){
-      const s=db.students.find(x=>x.student_id===en.student_id);
-      const p=db.packages.find(x=>x.package_id===en.package_id);
-      if(confirm(`¿Eliminar el paquete "${p?p.name:en.package_id}" de ${s?s.full_name:'alumno'}?\nSe borrarán asistencias y pagos ligados a este paquete.`)){
-        deleteEnrollmentCascade(id); renderEnrollmentTable();
-      }
-    }
-  },{once:true});
-}
-$('#btn-delete-active')?.addEventListener('click', ()=>{
-  const sid = $('#form-enrollment select[name="student_id"]').value;
-  if(!sid){ alert('Selecciona primero un alumno.'); return; }
-  const en = db.enrollments.find(e => e.student_id === sid && e.status === 'activo');
-  if(!en){ alert('Este alumno no tiene paquete activo.'); return; }
-  const s = db.students.find(x => x.student_id === sid);
-  const p = db.packages.find(x => x.package_id === en.package_id);
-  if(confirm(`¿Eliminar el paquete ACTIVO "${p ? p.name : en.package_id}" de ${s ? s.full_name : 'alumno'}?\nSe borrarán asistencias y pagos de ese paquete.`)){
-    deleteEnrollmentCascade(en.enrollment_id);
-    renderAll();
-  }
-});
-$('#form-enrollment').addEventListener('submit',e=>{
-  e.preventDefault();
-  const fd=new FormData(e.target);
-  const sid=fd.get('student_id'), pid=fd.get('package_id');
-  const sd=fd.get('start_date'), ed=fd.get('end_date');
-  if(!sid||!pid||!sd||!ed){ alert('Completa alumno, paquete y fechas'); return; }
-  for(const en of db.enrollments){ if(en.student_id===sid && en.status==='activo'){ en.status='vencido'; } }
-  const pkg=db.packages.find(p=>p.package_id===pid);
-  const en={ enrollment_id:uid('enr'), student_id:sid, package_id:pid, start_date:sd, end_date:ed, remaining_classes: pkg.classes_included, status:'activo' };
-  db.enrollments.push(en);
-  const method=fd.get('payment_method'); const status=fd.get('payment_status'); const amount=parseFloat(fd.get('amount_mxn')||'0');
-  if(method||status||amount>0){ db.payments.push({ payment_id:uid('pay'), enrollment_id:en.enrollment_id, student_id:sid, date:todayISO(), amount_mxn:amount||0, method:method||'', status:status||'pendiente', reference:'' }); }
-  save(db); e.target.reset(); renderAll();
-});
-
-function refreshStatuses(){
-  const t=todayISO();
-  for(const en of db.enrollments){ if(en.status==='activo' && en.end_date && en.end_date<t){ en.status='vencido'; } }
-  save(db);
-}
-function getActiveEnrollment(sid){
-  const t=parseISO(todayISO());
-  return db.enrollments.find(en=>{
-    if(en.student_id!==sid) return false;
-    if(en.status!=='activo') return false;
-    const sd=parseISO(en.start_date), ed=parseISO(en.end_date);
-    const startsOk=!sd || sd<=t; const endsOk=!ed || ed>=t;
-    return startsOk && endsOk;
-  }) || null;
-}
-function getLatestEnrollment(sid){
-  const list = db.enrollments.filter(e=>e.student_id===sid).sort((a,b)=>(b.start_date||'').localeCompare(a.start_date||''));
-  return list[0] || null;
-}
-function hasPaidForEnrollment(en){
-  const list=db.payments.filter(p=>p.enrollment_id===en.enrollment_id && p.status==='pagado');
-  return list.length>0;
-}
-
-function renderAttendanceHead(){
-  const head=$('#attendance-head');
-  if(currentMode==='admin'){
-    head.innerHTML='<tr><th>Fecha</th><th>Alumno</th><th>Clase/Grupo</th><th>Contó</th><th>Marcó</th></tr>';
-  }else{
-    head.innerHTML='<tr><th>Fecha</th><th>Alumno</th><th>Clase/Grupo</th><th>Asistencia</th></tr>';
-  }
-}
-function renderAttendanceSelectors(){
-  const sel=$('#form-attendance select[name="student_id"]');
-  sel.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('');
-}
-function renderAttendance(){
-  const tb=$('#table-attendance tbody'); tb.innerHTML='';
-  let rows=db.attendance.slice();
-  if(currentMode!=='admin'){
-    const t=todayISO();
-    rows=rows.filter(a=>a.date===t);
-  }
-  rows.sort((a,b)=>b.date.localeCompare(a.date));
-  for(const at of rows){
-    const s=db.students.find(x=>x.student_id===at.student_id);
-    const tr=document.createElement('tr');
-    if(currentMode==='admin'){
-      tr.innerHTML=`<td>${at.date}</td><td>${s?s.full_name:''}</td><td>${at.class_name_or_group||''}</td><td>${at.was_counted}</td><td>${at.marked_by}</td>`;
-    }else{
-      const asistencia = (at.was_counted==='yes' || at.was_counted===true) ? 'Sí' : 'No';
-      tr.innerHTML=`<td>${at.date}</td><td>${s?s.full_name:''}</td><td>${at.class_name_or_group||''}</td><td>${asistencia}</td>`;
-    }
-    tb.appendChild(tr);
-  }
-}
-function showKioskProfile(sid){
-  const box = $('#kiosk-profile');
-  const s = db.students.find(x=>x.student_id===sid);
-  let en = getActiveEnrollment(sid); if(!en) en=getLatestEnrollment(sid);
-  const rest = en ? (en.remaining_classes ?? 0) : 0;
-  const img = s?.photo_data ? `<img src="${s.photo_data}" alt="foto alumno">` : `<img src="icons/icon-192.png" alt="sin foto">`;
-  box.innerHTML = `${img}<div class="info"><div class="name">${s? s.full_name : ''}</div><div class="meta">Restantes: ${rest}</div><div class="meta">Hoy: ${todayISO()}</div></div>`;
-  box.style.display = 'flex';
-  if(kioskClearTimer) clearTimeout(kioskClearTimer);
-  kioskClearTimer = setTimeout(clearKioskProfile, 12000);
-}
-function clearKioskProfile(){
-  const box = $('#kiosk-profile');
-  box.innerHTML=''; box.style.display='none';
-}
-function markAttendanceFor(sid, cls, by='admin'){
-  const s=db.students.find(x=>x.student_id===sid); if(!s){ alert('Alumno no encontrado'); speak(config.voice_deny); return; }
-  let en=getActiveEnrollment(sid); if(!en) en=getLatestEnrollment(sid);
-  if(!en){ alert(`Sin paquete activo para ${s.full_name}`); speak(config.voice_deny); return; }
-  if(currentMode==='alumno' && !hasPaidForEnrollment(en)){ alert(`Acceso denegado: pago pendiente de ${s.full_name}.`); speak(config.voice_deny); return; }
-  const countable=true;
-  if(countable && en.remaining_classes<=0){ alert(`${s.full_name} no tiene clases restantes.`); speak(config.voice_deny); return; }
-  db.attendance.push({ attendance_id:uid('att'), enrollment_id:en.enrollment_id, student_id:sid, date:todayISO(), class_name_or_group:cls||'', marked_by:by, was_counted:countable?'yes':'no' });
-  if(countable){
-    en.remaining_classes -= 1;
-    if(en.remaining_classes===1){ alert(`Aviso: a ${s.full_name} le queda 1 clase.`); }
-  }
-  save(db); renderAll(); speak(config.voice_ok);
-  if(currentMode==='alumno'){ showKioskProfile(sid); }
-}
-$('#form-attendance').addEventListener('submit',e=>{
-  e.preventDefault(); const fd=new FormData(e.target);
-  markAttendanceFor(fd.get('student_id'), fd.get('class_name_or_group')||'', 'admin'); e.target.reset();
-});
-$('#form-pin').addEventListener('submit',e=>{
-  e.preventDefault(); const fd=new FormData(e.target);
-  const pin=(fd.get('pin')||'').trim();
-  const rec=db.pins.find(p=>p.pin===pin); if(!rec){ alert('PIN incorrecto'); speak(config.voice_deny); return; }
-  const cls = (currentMode==='admin') ? (fd.get('class_name_or_group')||'') : (config.default_class || '');
-  markAttendanceFor(rec.student_id, cls, 'pin'); e.target.reset();
-});
-$('#form-pin input[name="pin"]').addEventListener('input', ()=>{ clearKioskProfile(); });
-
-function renderPayments(){
-  const tb=$('#table-payments tbody'); tb.innerHTML='';
-  const rows=db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date));
-  for(const p of rows){
-    const s=db.students.find(x=>x.student_id===p.student_id);
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${p.date}</td><td>${s?s.full_name:''}</td><td>${p.method||''}</td><td>${(p.amount_mxn||0).toFixed(2)}</td><td>${p.status||''}</td><td>${p.reference||''}</td>`;
-    tb.appendChild(tr);
-  }
-}
-
-$('#form-event').addEventListener('submit',e=>{
-  e.preventDefault(); const fd=new FormData(e.target);
-  const ev=Object.fromEntries(fd.entries()); ev.event_id=uid('evt'); db.events.push(ev); save(db); e.target.reset(); renderAll();
-});
-function renderEvents(){
-  const tb=$('#table-events tbody'); tb.innerHTML='';
-  const rows=db.events.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-  for(const ev of rows){
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${ev.date||''} ${ev.start_time||''}</td><td>${ev.title||''}</td><td>${ev.type||''}</td><td>${ev.location||''}</td><td><button data-act="notify" data-id="${ev.event_id}">Notificar</button> <button data-act="del" data-id="${ev.event_id}">Eliminar</button></td>`;
-    tb.appendChild(tr);
-  }
-  tb.addEventListener('click',e=>{
-    const btn=e.target.closest('button'); if(!btn) return;
-    const id=btn.dataset.id; const ev=db.events.find(x=>x.event_id===id);
-    if(btn.dataset.act==='del'){ if(confirm('¿Eliminar evento?')){ db.events=db.events.filter(x=>x.event_id!==id); save(db); renderAll(); } }
-    else if(btn.dataset.act==='notify'){ alert(`Notificación simulada: "${ev.title}" el ${ev.date} ${ev.start_time||''}`); }
-  },{once:true});
-}
-function sumBy(a,f){return a.reduce((x,y)=>x+(+f(y)||0),0)}
-function groupBy(a,k){return a.reduce((acc,x)=>{const key=k(x);(acc[key]??=[]).push(x);return acc},{})}
-function renderReports(){
-  const n=new Date(); const ym=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
-  const att=db.attendance.filter(a=>(a.date||'').startsWith(ym));
-  $('#r-attendance-month').textContent=`${att.length} asistencias`;
-  const pay=db.payments.filter(p=>(p.date||'').startsWith(ym)&&p.status==='pagado');
-  $('#r-income-month').textContent=`$ ${sumBy(pay,x=>x.amount_mxn).toFixed(2)} MXN`;
-  const sold=db.enrollments.filter(en=>(en.start_date||'').startsWith(ym));
-  const g=groupBy(sold,en=>en.package_id);
-  const ul=$('#r-top-packages'); ul.innerHTML='';
-  Object.entries(g).sort((a,b)=>b[1].length-a[1].length).forEach(([id,list])=>{
-    const pkg=db.packages.find(p=>p.package_id===id);
-    const li=document.createElement('li'); li.textContent=`${pkg?pkg.name:id}: ${list.length}`; ul.appendChild(li);
+// Meta helpers
+async function getAdminPin() {
+  const { tx, stores:[meta] } = await dbTx(['meta']);
+  return await new Promise(res=>{
+    const r = meta.get('adminPin');
+    r.onsuccess = () => res(r.result ? r.result.value : '0000');
+    r.onerror = () => res('0000');
   });
 }
-function renderDashboard(){
-  const t=todayISO();
-  $('#attendances-today').textContent=db.attendance.filter(a=>a.date===t).length;
-  $('#payments-due').textContent=db.payments.filter(p=>(p.status||'')==='pendiente').length;
-  const next7=new Date(); next7.setDate(next7.getDate()+7);
-  const exp=db.enrollments.filter(en=>{ if(en.status!=='activo'||!en.end_date) return false; const ed=new Date(en.end_date); const td=new Date(t); return ed>=td&&ed<=next7; }).length;
-  $('#expiring-packages').textContent=exp;
-  const up=db.events.filter(ev=>{ if(!ev.date) return false; const d=new Date(ev.date); const td=new Date(t); const n7=new Date(td); n7.setDate(n7.getDate()+7); return d>=td&&d<=n7; }).length;
-  $('#upcoming-events').textContent=up;
+async function setAdminPin(pin) {
+  const { tx, stores:[meta] } = await dbTx(['meta'],'readwrite');
+  await meta.put({ key:'adminPin', value: pin });
+  return new Promise(res=>tx.oncomplete=()=>res(true));
 }
 
-$('#form-panel-login').addEventListener('submit',e=>{
-  e.preventDefault();
-  const pin=(new FormData(e.target).get('pin')||'').trim();
-  const rec=db.pins.find(p=>p.pin===pin);
-  if(!rec){ alert('PIN incorrecto'); return; }
-  const sid=rec.student_id;
-  const s=db.students.find(x=>x.student_id===sid);
-  let en=getActiveEnrollment(sid);
-  if(!en) en=getLatestEnrollment(sid);
-  $('#pv-name').textContent=s?s.full_name:'(Alumno)';
-  const remaining=(en?(en.remaining_classes ?? en.remaining ?? 0):'0');
-  $('#pv-remaining').textContent=remaining;
-  $('#pv-ends').textContent=en?(en.end_date||'-'):'-';
-  const td=new Date(todayISO()); const n30=new Date(td); n30.setDate(n30.getDate()+30);
-  const ul=$('#pv-events'); ul.innerHTML='';
-  db.events.filter(ev=>ev.date&&new Date(ev.date)>=td&&new Date(ev.date)<=n30)
-           .sort((a,b)=>(a.date||'').localeCompare(b.date||''))
-           .slice(0,8).forEach(ev=>{ const li=document.createElement('li'); li.textContent=`${ev.date} ${ev.start_time||''} — ${ev.title}`; ul.appendChild(li); });
-  $('#panel-login').style.display='none'; $('#panel-view').style.display='block';
+// Student helpers
+async function addOrUpdateStudent(stu) {
+  const { tx, stores:[students] } = await dbTx(['students'],'readwrite');
+  await students.put(stu);
+  return new Promise(res=>tx.oncomplete=()=>res(true));
+}
+async function getStudentByPin(pin) {
+  const { tx, stores:[students] } = await dbTx(['students']);
+  return new Promise((res, rej)=>{
+    const idx = students.index('pin');
+    const r = idx.get(pin);
+    r.onsuccess = ()=>res(r.result||null);
+    r.onerror = ()=>res(null);
+  });
+}
+async function getAllStudents() {
+  const { tx, stores:[students] } = await dbTx(['students']);
+  return new Promise((res)=>{
+    const list = [];
+    const c = students.openCursor();
+    c.onsuccess = (e)=>{
+      const cur = e.target.result;
+      if (cur) { list.push(cur.value); cur.continue(); } else res(list);
+    };
+  });
+}
+async function deleteStudent(id) {
+  const { tx, stores:[students] } = await dbTx(['students'],'readwrite');
+  students.delete(id);
+  return new Promise(res=>tx.oncomplete=()=>res(true));
+}
+
+// Attendance helpers
+async function logAttendance(studentId) {
+  const { tx, stores:[attendance] } = await dbTx(['attendance'],'readwrite');
+  await attendance.add({ studentId, ts: new Date().toISOString() });
+  return new Promise(res=>tx.oncomplete=()=>res(true));
+}
+async function getAttendanceByStudent(studentId) {
+  const { tx, stores:[attendance] } = await dbTx(['attendance']);
+  return new Promise(res=>{
+    const idx = attendance.index('byStudent');
+    const req = idx.getAll(studentId);
+    req.onsuccess = ()=>res(req.result||[]);
+    req.onerror = ()=>res([]);
+  });
+}
+
+// Export/Import
+async function exportAll() {
+  const [students, pin] = await Promise.all([getAllStudents(), getAdminPin()]);
+  const data = { when: new Date().toISOString(), adminPin: pin, students, version: 1 };
+  return new Blob([JSON.stringify(data,null,2)], { type:'application/json' });
+}
+async function importAll(file) {
+  const text = await file.text();
+  const data = JSON.parse(text);
+  const { tx, stores:[students, meta] } = await dbTx(['students','meta'],'readwrite');
+  await new Promise((res)=>{
+    const clearReq = students.clear();
+    clearReq.onsuccess = ()=>res();
+    clearReq.onerror = ()=>res();
+  });
+  if (data.students && Array.isArray(data.students)) {
+    for (const s of data.students) {
+      delete s.id; // let it autoincrement to avoid clashes
+      await students.add(s);
+    }
+  }
+  if (data.adminPin) await meta.put({ key:'adminPin', value:data.adminPin });
+  return new Promise(res=>tx.oncomplete=()=>res(true));
+}
+async function resetAll() {
+  if (!db) db = await openDB();
+  db.close();
+  await indexedDB.deleteDatabase(DB_NAME);
+  db = null;
+}
+
+// Utilities
+function pkgDefaultRemaining(type) {
+  switch(type){
+    case 'suelta': return 1;
+    case 'dos': return 2;
+    case 'cuatro': return 4;
+    case 'seis': return 6;
+    case 'ocho': return 8;
+    case 'diez': return 10;
+    case 'doce': return 12;
+    case 'mes': return 0;
+    default: return 0;
+  }
+}
+function formatDate(d) {
+  const dt = new Date(d);
+  return dt.toLocaleDateString();
+}
+function todayISO() {
+  const d = new Date();
+  const z = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  return z.toISOString().slice(0,10);
+}
+
+// UI logic
+const views = {
+  home: document.getElementById('view-home'),
+  alumno: document.getElementById('view-alumno'),
+  adminPin: document.getElementById('view-admin-pin'),
+  admin: document.getElementById('view-admin'),
+};
+function show(id) {
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  id.classList.add('active');
+}
+
+// Routing
+document.getElementById('btn-alumno').addEventListener('click', ()=>show(views.alumno));
+document.getElementById('btn-admin').addEventListener('click', ()=>show(views.adminPin));
+document.querySelectorAll('[data-back]').forEach(b=>b.addEventListener('click', ()=>show(views.home)));
+
+// Alumno keypad
+const pinInputs = [ 'pin-1','pin-2','pin-3','pin-4' ].map(id=>document.getElementById(id));
+const alumnoMsg = document.getElementById('alumno-msg');
+function setAlumnoMsg(text, cls='') {
+  alumnoMsg.textContent = text;
+  alumnoMsg.className = 'msg ' + cls;
+}
+document.querySelectorAll('[data-key]').forEach(btn=>{
+  btn.addEventListener('click', async ()=>{
+    const k = btn.dataset.key;
+    if (k === 'del') {
+      for (let i=pinInputs.length-1;i>=0;i--) {
+        if (pinInputs[i].value) { pinInputs[i].value=''; break; }
+      }
+      return;
+    }
+    if (k === 'ok') {
+      const pin = pinInputs.map(i=>i.value).join('');
+      if (pin.length !== 4) return setAlumnoMsg('Completa los 4 dígitos.', 'warn');
+      const stu = await getStudentByPin(pin);
+      if (!stu) {
+        setAlumnoMsg('Código no encontrado. Pide soporte en recepción.', 'error');
+        pinInputs.forEach(i=>i.value='');
+        return;
+      }
+      // Validar paquete
+      const today = todayISO();
+      const inRange = (!stu.startDate || stu.startDate <= today) && (!stu.endDate || stu.endDate >= today);
+      if (!inRange) {
+        setAlumnoMsg('Tu paquete no está vigente. Por favor reacude a recepción.', 'warn');
+        pinInputs.forEach(i=>i.value='');
+        return;
+      }
+      // Decrementar clases si aplica
+      if (stu.pkgType !== 'mes') {
+        if (!stu.remaining || stu.remaining <= 0) {
+          setAlumnoMsg('Ya no tienes clases restantes. Reagendar en recepción.', 'warn');
+          pinInputs.forEach(i=>i.value='');
+          return;
+        }
+        if (stu.remaining === 1) {
+          alert('⚠️ Atención: te queda solo 1 clase restante. Acude a recepción para reagendar.');
+        }
+        stu.remaining -= 1;
+        await addOrUpdateStudent(stu);
+      }
+      await logAttendance(stu.id);
+      setAlumnoMsg(`¡Acceso concedido, ${stu.name.split(' ')[0]}!`, 'success');
+      // Ocultar datos y volver a inicio
+      setTimeout(()=>{
+        pinInputs.forEach(i=>i.value='');
+        setAlumnoMsg('');
+        show(views.home);
+      }, 2500);
+      return;
+    }
+    // digit
+    for (let i=0;i<pinInputs.length;i++) {
+      if (!pinInputs[i].value) { pinInputs[i].value = k; break; }
+    }
+  });
 });
-$('#pv-logout').addEventListener('click',()=>{ $('#panel-login').style.display='block'; $('#panel-view').style.display='none'; });
 
-function renderAll(){
-  refreshStatuses();
-  try{ renderStudents(); }catch(e){}
-  try{ renderEnrollmentSelectors(); renderEnrollmentTable(); }catch(e){}
-  try{ renderAttendanceHead(); renderAttendanceSelectors(); renderAttendance(); }catch(e){}
-  try{ renderPayments(); }catch(e){}
-  try{ renderEvents(); }catch(e){}
-  try{ renderReports(); renderDashboard(); }catch(e){}
-  applyModeToUI();
-  applyBrand();
+// Admin PIN keypad
+const apInputs = [ 'apin-1','apin-2','apin-3','apin-4' ].map(id=>document.getElementById(id));
+const adminPinMsg = document.getElementById('admin-pin-msg');
+document.querySelectorAll('[data-apkey]').forEach(btn=>{
+  btn.addEventListener('click', async ()=>{
+    const k = btn.dataset.apkey;
+    if (k === 'del') {
+      for (let i=apInputs.length-1;i>=0;i--) {
+        if (apInputs[i].value) { apInputs[i].value=''; break; }
+      }
+      return;
+    }
+    if (k === 'ok') {
+      const pin = apInputs.map(i=>i.value).join('');
+      const saved = await getAdminPin();
+      if (pin === saved) {
+        apInputs.forEach(i=>i.value='');
+        adminPinMsg.textContent = '';
+        await refreshStudents();
+  // Ofrecer reagendar inmediatamente
+  if (editingStudent === null) {
+    const all = await getAllStudents();
+    const saved = all.find(x => x.pin === stu.pin);
+    if (saved) {
+      if (confirm('Alumno guardado. ¿Quieres reagendar ahora su paquete?')) {
+        openResched(saved);
+      }
+    }
+  }
+        show(views.admin);
+      } else {
+        adminPinMsg.textContent = 'PIN incorrecto.';
+        apInputs.forEach(i=>i.value='');
+      }
+      return;
+    }
+    for (let i=0;i<apInputs.length;i++) {
+      if (!apInputs[i].value) { apInputs[i].value = k; break; }
+    }
+  });
+});
+
+// Admin settings
+document.getElementById('btn-save-admin-pin').addEventListener('click', async ()=>{
+  const val = document.getElementById('admin-pin-input').value.trim();
+  if (!/^\d{4}$/.test(val)) { alert('El PIN debe tener 4 dígitos.'); return; }
+  await setAdminPin(val);
+  alert('PIN actualizado.');
+});
+
+// Students list & dialog
+const listEl = document.getElementById('students');
+const dlgStudent = document.getElementById('dlg-student');
+const formStudent = document.getElementById('form-student');
+const dlgTitle = document.getElementById('dlg-title');
+const photoInput = document.getElementById('student-photo-input');
+const photoPreview = document.getElementById('student-photo-preview');
+
+let editingStudent = null;
+
+document.getElementById('btn-add-student').addEventListener('click', ()=>{
+  editingStudent = null;
+  formStudent.reset();
+  photoPreview.src = '';
+  const s = formStudent.elements;
+  s.remaining.value = pkgDefaultRemaining(s.pkgType.value);
+  s.startDate.value = todayISO();
+  const d = new Date(s.startDate.value); d.setMonth(d.getMonth()+1); s.endDate.value = d.toISOString().slice(0,10);
+  dlgTitle.textContent = 'Añadir alumno';
+  dlgStudent.showModal();
+});
+
+formStudent.elements.pkgType.addEventListener('change', (e)=>{
+  formStudent.elements.remaining.value = pkgDefaultRemaining(e.target.value);
+});
+
+document.getElementById('btn-take-photo').addEventListener('click', ()=>{
+  photoInput.click();
+});
+photoInput.addEventListener('change', async (e)=>{
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = ()=>{
+    const canvas = document.createElement('canvas');
+    const max = 512;
+    const ratio = Math.min(max/img.width, max/img.height, 1);
+    canvas.width = Math.round(img.width*ratio);
+    canvas.height = Math.round(img.height*ratio);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    const data = canvas.toDataURL('image/jpeg', 0.85);
+    photoPreview.src = data;
+    photoPreview.dataset.dataUrl = data;
+  };
+  img.src = URL.createObjectURL(file);
+});
+
+document.getElementById('btn-save-student').addEventListener('click', async (e)=>{
+  e.preventDefault();
+  const f = formStudent.elements;
+  const stu = editingStudent || { id: undefined };
+  // Required fields
+  if (!f.name.value.trim() || !/^\d{4}$/.test(f.pin.value)) {
+    alert('Nombre y PIN de 4 dígitos son obligatorios.'); return;
+  }
+  Object.assign(stu, {
+    name: f.name.value.trim(),
+    pin: f.pin.value.trim(),
+    phone: f.phone.value.trim(),
+    emergency: f.emergency.value.trim(),
+    birthdate: f.birthdate.value || null,
+    address: f.address.value.trim(),
+    payment: f.payment.value,
+    pkgType: f.pkgType.value,
+    startDate: f.startDate.value,
+    endDate: f.endDate.value,
+    remaining: Number(f.remaining.value||0),
+    photo: photoPreview.dataset.dataUrl || stu.photo || null,
+    active: true,
+  });
+  try {
+    await addOrUpdateStudent(stu);
+    dlgStudent.close();
+    await refreshStudents();
+  // Ofrecer reagendar inmediatamente
+  if (editingStudent === null) {
+    const all = await getAllStudents();
+    const saved = all.find(x => x.pin === stu.pin);
+    if (saved) {
+      if (confirm('Alumno guardado. ¿Quieres reagendar ahora su paquete?')) {
+        openResched(saved);
+      }
+    }
+  }
+  } catch (err) {
+    alert('Error guardando: ' + err.message);
+  }
+});
+
+async function refreshStudents() {
+  const all = await getAllStudents();
+  listEl.innerHTML = '';
+  if (!all.length) {
+    listEl.innerHTML = '<p class="muted">Aún no hay alumnos.</p>';
+    return;
+  }
+  const oneLeft = [];
+  for (const s of all) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const remainText = s.pkgType === 'mes' ? `${formatDate(s.startDate)} → ${formatDate(s.endDate)}` : `${s.remaining} clases restantes`;
+    const badge = (s.pkgType !== 'mes' && Number(s.remaining) === 1) ? '<span class="badge">¡Falta 1 clase!</span>' : '';
+    card.innerHTML = `
+      <img src="${s.photo || ''}" alt="Foto de ${s.name}">
+      <h4>${s.name} ${badge}</h4>
+      <div class="muted">PIN: ${s.pin}</div>
+      <div class="muted">Paquete: ${s.pkgType.toUpperCase()} — ${remainText}</div>
+      <menu>
+        <button data-act="edit">Editar</button>
+        <button data-act="resched">Reagendar</button>
+        <button data-act="delete" class="danger">Eliminar</button>
+      </menu>
+    `;
+    card.querySelector('[data-act="edit"]').addEventListener('click', ()=>openEdit(s));
+    card.querySelector('[data-act="resched"]').addEventListener('click', ()=>openResched(s));
+    card.querySelector('[data-act="delete"]').addEventListener('click', async ()=>{
+      if (confirm('¿Eliminar este alumno?')) {
+        await deleteStudent(s.id);
+        await refreshStudents();
+  // Ofrecer reagendar inmediatamente
+  if (editingStudent === null) {
+    const all = await getAllStudents();
+    const saved = all.find(x => x.pin === stu.pin);
+    if (saved) {
+      if (confirm('Alumno guardado. ¿Quieres reagendar ahora su paquete?')) {
+        openResched(saved);
+      }
+    }
+  }
+      }
+    });
+    if (s.pkgType !== 'mes' && Number(s.remaining) === 1) { oneLeft.push(s); }
+    listEl.appendChild(card);
+  }
+  // Alert banner
+  const banner = document.getElementById('admin-alerts');
+  if (oneLeft.length) {
+    banner.classList.add('active');
+    const items = oneLeft.map(s=>`• ${s.name} (PIN ${s.pin})`).join('<br>');
+    banner.innerHTML = `<h4>Atención — Falta 1 clase</h4><div class="muted">Estos alumnos están por terminar su paquete:</div><div style="margin-top:6px">${items}</div>`;
+  } else {
+    banner.classList.remove('active');
+    banner.innerHTML = '';
+  }
 }
-renderAll();
-})();
+
+function openEdit(s) {
+  editingStudent = s;
+  const f = formStudent.elements;
+  document.getElementById('dlg-title').textContent = 'Editar alumno';
+  f.name.value = s.name||'';
+  f.pin.value = s.pin||'';
+  f.phone.value = s.phone||'';
+  f.emergency.value = s.emergency||'';
+  f.birthdate.value = s.birthdate||'';
+  f.address.value = s.address||'';
+  f.payment.value = s.payment||'';
+  f.pkgType.value = s.pkgType||'suelta';
+  f.startDate.value = s.startDate||todayISO();
+  f.endDate.value = s.endDate||todayISO();
+  f.remaining.value = s.remaining||pkgDefaultRemaining(f.pkgType.value);
+  photoPreview.src = s.photo||'';
+  photoPreview.dataset.dataUrl = s.photo||'';
+  dlgStudent.showModal();
+}
+
+// Reagendar
+const dlgRes = document.getElementById('dlg-resched');
+const formRes = document.getElementById('form-resched');
+let resTarget = null;
+function openResched(s) {
+  resTarget = s;
+  const f = formRes.elements;
+  f.pkgType.value = s.pkgType;
+  f.startDate.value = todayISO();
+  const d = new Date(f.startDate.value); d.setMonth(d.getMonth()+1); f.endDate.value = d.toISOString().slice(0,10);
+  f.remaining.value = pkgDefaultRemaining(f.pkgType.value);
+  dlgRes.showModal();
+}
+document.getElementById('btn-resched-save').addEventListener('click', async (e)=>{
+  e.preventDefault();
+  const f = formRes.elements;
+  if (!resTarget) return;
+  resTarget.pkgType = f.pkgType.value;
+  resTarget.startDate = f.startDate.value;
+  resTarget.endDate = f.endDate.value;
+  resTarget.remaining = Number(f.remaining.value||0);
+  await addOrUpdateStudent(resTarget);
+  dlgRes.close();
+  await refreshStudents();
+  // Ofrecer reagendar inmediatamente
+  if (editingStudent === null) {
+    const all = await getAllStudents();
+    const saved = all.find(x => x.pin === stu.pin);
+    if (saved) {
+      if (confirm('Alumno guardado. ¿Quieres reagendar ahora su paquete?')) {
+        openResched(saved);
+      }
+    }
+  }
+});
+
+// Export / Import / Reset
+document.getElementById('btn-export').addEventListener('click', async ()=>{
+  const blob = await exportAll();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `adan-nh-respaldo-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+document.getElementById('file-import').addEventListener('change', async (e)=>{
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (!confirm('Esto reemplazará tu lista de alumnos. ¿Continuar?')) return;
+  await importAll(file);
+  await refreshStudents();
+  // Ofrecer reagendar inmediatamente
+  if (editingStudent === null) {
+    const all = await getAllStudents();
+    const saved = all.find(x => x.pin === stu.pin);
+    if (saved) {
+      if (confirm('Alumno guardado. ¿Quieres reagendar ahora su paquete?')) {
+        openResched(saved);
+      }
+    }
+  }
+  alert('Datos importados.');
+});
+document.getElementById('btn-reset').addEventListener('click', async ()=>{
+  if (!confirm('Reiniciar toda la app (borrar alumnos y ajustes)? Esta acción no se puede deshacer.')) return;
+  await resetAll();
+  location.reload();
+});
+
+// PWA
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}

@@ -1,215 +1,168 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Academia de Danza NH — Accesos</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <title>Academia NH</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css">
+  <meta name="theme-color" content="#111111">
 </head>
 <body>
   <header>
-    <div class="brand">
-      <img src="icons/icon-192.png" alt="Logo" />
-      <h1 id="brand-title">Academia NH</h1>
-    </div>
-    <nav id="tabs">
-      <button data-tab="attendance" class="active">Asistencias</button>
-      <button data-tab="panel">Panel Alumno</button>
-      <button data-tab="dashboard" data-admin>Dashboard</button>
-      <button data-tab="students" data-admin>Alumnos</button>
-      <button data-tab="enrollments" data-admin>Paquetes</button>
-      <button data-tab="payments" data-admin>Pagos</button>
-      <button data-tab="events" data-admin>Calendario</button>
-      <button data-tab="reports" data-admin>Reportes</button>
-      <button data-tab="config" data-admin>Config</button>
-      <button id="btn-export" data-admin>Exportar JSON</button>
-      <button id="btn-import" data-admin>Importar JSON</button>
-      <input type="file" id="file-import" accept="application/json" style="display:none" />
-      <span class="spacer"></span>
-      <select id="mode-switch" title="Modo de visualización">
-        <option value="alumno">Modo Alumno</option>
-        <option value="admin">Modo Admin</option>
-      </select>
-    </nav>
+    <h1>Academia de Danza NH</h1>
+    <p class="subtitle">Control de accesos • ciclo 2025–2026</p>
   </header>
 
-  <main>
-    <section id="dashboard" class="tab">
-      <div class="grid">
-        <div class="card"><h3>Asistencias hoy</h3><p><span id="attendances-today">0</span></p></div>
-        <div class="card"><h3>Pagos pendientes</h3><p><span id="payments-due">0</span></p></div>
-        <div class="card"><h3>Paquetes por vencer (7 días)</h3><p><span id="expiring-packages">0</span></p></div>
-        <div class="card"><h3>Eventos próximos (7 días)</h3><p><span id="upcoming-events">0</span></p></div>
-      </div>
-    </section>
-
-    <section id="students" class="tab">
-      <h2>Alumnos</h2>
-      <form id="form-student" class="form-grid">
-        <input name="full_name" placeholder="Nombre completo" required />
-        <input name="age" type="number" placeholder="Edad" min="0" />
-        <input name="phone" placeholder="Teléfono" />
-        <input name="emergency_contact_name" placeholder="Contacto de emergencia" />
-        <input name="emergency_contact_phone" placeholder="Tel. emergencia" />
-        <input name="address" placeholder="Dirección" />
-        <input name="notes" placeholder="Notas" />
-        <label class="file-uploader"><span>Foto (opcional)</span><input id="student-photo" type="file" accept="image/*" /></label>
-        <button>+ Agregar alumno</button>
-      </form>
-      <div class="table-wrap">
-        <table id="table-students">
-          <thead><tr><th>Foto</th><th>Nombre</th><th>Edad</th><th>Teléfono</th><th>Emergencia</th><th class="only-admin">PIN</th><th>Acciones</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="enrollments" class="tab">
-      <h2>Vender/Asignar paquete</h2>
-      <form id="form-enrollment" class="form-grid">
-        <select name="student_id" required></select>
-        <select name="package_id" required></select>
-        <input name="start_date" type="date" required />
-        <input name="end_date" type="date" required />
-        <select name="payment_method">
-          <option value="">(método de pago)</option>
-          <option value="efectivo">Efectivo</option>
-          <option value="transferencia">Transferencia</option>
-        </select>
-        <select name="payment_status">
-          <option value="">(estado)</option>
-          <option value="pagado">Pagado</option>
-          <option value="pendiente">Pendiente</option>
-        </select>
-        <input name="amount_mxn" type="number" placeholder="Monto MXN" min="0" step="0.01" />
-        <button>Asignar paquete</button>
-      </form>
-      <div class="form-inline" id="box-delete-active">
-        <button type="button" id="btn-delete-active" style="background:#fff;border:1px solid #ef4444;color:#b91c1c">
-          Eliminar paquete ACTIVO del alumno seleccionado
-        </button>
-      </div>
-      <div class="table-wrap">
-        <table id="table-enrollments">
-          <thead><tr><th>Alumno</th><th>Paquete</th><th>Inicio</th><th>Fin</th><th>Restantes</th><th>Estado</th><th>Acciones</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="attendance" class="tab active">
-      <h2>Asistencias</h2>
-      <div class="flex">
-        <form id="form-attendance" class="form-inline">
-          <select name="student_id" required></select>
-          <input name="class_name_or_group" placeholder="Clase/Grupo (opcional)" />
-          <button>Marcar asistencia</button>
-        </form>
-        <div class="pin-box" id="kiosk-box">
-          <h3>Marcar por PIN (4 dígitos)</h3>
-          <form id="form-pin" class="form-inline">
-            <input name="pin" inputmode="numeric" maxlength="4" pattern="\d{4}" placeholder="••••" required />
-            <input name="class_name_or_group" id="pin-class" placeholder="Clase/Grupo (opcional)" />
-            <button>Marcar</button>
-          </form>
-          <div id="kiosk-profile" class="kiosk-profile" aria-live="polite"></div>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table id="table-attendance">
-          <thead id="attendance-head"></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="payments" class="tab">
-      <h2>Pagos</h2>
-      <div class="table-wrap">
-        <table id="table-payments">
-          <thead><tr><th>Fecha</th><th>Alumno</th><th>Método</th><th>Monto</th><th>Estado</th><th>Ref</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="events" class="tab">
-      <h2>Calendario de eventos</h2>
-      <form id="form-event" class="form-grid">
-        <input name="title" placeholder="Título" required />
-        <input name="date" type="date" required />
-        <input name="start_time" type="time" />
-        <input name="end_time" type="time" />
-        <input name="location" placeholder="Lugar" />
-        <select name="type"><option value="">(tipo)</option><option>clausura</option><option>taller</option><option>ensayo</option><option>otro</option></select>
-        <input name="notes" placeholder="Notas" />
-        <button>+ Agregar evento</button>
-      </form>
-      <div class="table-wrap">
-        <table id="table-events">
-          <thead><tr><th>Fecha</th><th>Título</th><th>Tipo</th><th>Lugar</th><th>Acciones</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="reports" class="tab">
-      <h2>Reportes</h2>
-      <div class="grid">
-        <div class="card"><h3>Asistencia por mes</h3><p id="r-attendance-month"></p></div>
-        <div class="card"><h3>Ingresos por mes</h3><p id="r-income-month"></p></div>
-        <div class="card"><h3>Paquetes más vendidos</h3><ul id="r-top-packages"></ul></div>
-      </div>
-    </section>
-
-    <section id="panel" class="tab">
-      <h2>Panel del Alumno</h2>
-      <div id="panel-login">
-        <p>Accede con tu PIN de 4 dígitos</p>
-        <form id="form-panel-login" class="form-inline">
-          <input name="pin" inputmode="numeric" maxlength="4" pattern="\d{4}" placeholder="••••" required />
-          <button>Entrar</button>
-        </form>
-      </div>
-      <div id="panel-view" style="display:none">
-        <h3 id="pv-name"></h3>
-        <p><strong>Clases restantes:</strong> <span id="pv-remaining"></span></p>
-        <p><strong>Vence:</strong> <span id="pv-ends"></span></p>
-        <h4>Próximos eventos</h4>
-        <ul id="pv-events"></ul>
-        <button id="pv-logout">Salir</button>
-      </div>
-    </section>
-
-    <section id="config" class="tab">
-      <h2>Configuraciones (Admin)</h2>
-      <div class="form-grid">
-        <input id="cfg-brand-name" placeholder="Nombre de la academia" value="Academia NH"/>
-        <input id="cfg-primary" placeholder="Color primario (hex)" value="#EFB8C8"/>
-        <input id="cfg-accent" placeholder="Color acento (hex)" value="#111827"/>
-        <input id="cfg-admin-pin" placeholder="PIN de Admin (4 dígitos)" maxlength="4" inputmode="numeric"/>
-        <input id="cfg-default-class" placeholder="Clase/Grupo por defecto (kiosco)" value="General"/>
-        <input id="cfg-voice-ok" placeholder='Texto voz "acceso otorgado"' value="Acceso otorgado"/>
-        <input id="cfg-voice-deny" placeholder='Texto voz "acceso denegado"' value="Acceso denegado"/>
-        <button id="cfg-save">Guardar</button>
-      </div>
-      <p class="muted">En Modo Alumno se oculta todo excepto el PIN. La clase/grupo se toma de “Clase/Grupo por defecto”.</p>
-    </section>
-
+  <main id="view-home" class="view active">
+    <div class="mode-picker">
+      <button id="btn-alumno" class="primary">Alumno</button>
+      <button id="btn-admin" class="secondary">Administrador</button>
+    </div>
+    <p class="note">Funciona sin internet. Puedes instalarla en tu iPad: Compartir → “Añadir a la pantalla de inicio”.</p>
   </main>
 
-  <footer><small>PWA localStorage. Agrega a pantalla de inicio para modo app.</small></footer>
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js');
-      });
-    }
-  </script>
+  <main id="view-alumno" class="view">
+    <button class="back" data-back>← Regresar</button>
+    <h2>Acceso de Alumno</h2>
+    <div class="pin-box">
+      <input id="pin-1" inputmode="numeric" maxlength="1" pattern="[0-9]*">
+      <input id="pin-2" inputmode="numeric" maxlength="1" pattern="[0-9]*">
+      <input id="pin-3" inputmode="numeric" maxlength="1" pattern="[0-9]*">
+      <input id="pin-4" inputmode="numeric" maxlength="1" pattern="[0-9]*">
+    </div>
+    <div class="keypad" aria-label="Teclado numérico">
+      <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button>
+      <button data-key="4">4</button><button data-key="5">5</button><button data-key="6">6</button>
+      <button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button>
+      <button data-key="del">⌫</button><button data-key="0">0</button><button data-key="ok">OK</button>
+    </div>
+    <div id="alumno-msg" class="msg"></div>
+  </main>
+
+  <main id="view-admin-pin" class="view">
+    <button class="back" data-back>← Regresar</button>
+    <h2>Administrador</h2>
+    <p>Ingresa PIN de administrador.</p>
+    <div class="pin-box">
+      <input id="apin-1" inputmode="numeric" maxlength="1" pattern="[0-9]*">
+      <input id="apin-2" inputmode="numeric" maxlength="1" pattern="[0-9]*">
+      <input id="apin-3" inputmode="numeric" maxlength="1" pattern="[0-9]*">
+      <input id="apin-4" inputmode="numeric" maxlength="1" pattern="[0-9]*">
+    </div>
+    <div class="keypad">
+      <button data-apkey="1">1</button><button data-apkey="2">2</button><button data-apkey="3">3</button>
+      <button data-apkey="4">4</button><button data-apkey="5">5</button><button data-apkey="6">6</button>
+      <button data-apkey="7">7</button><button data-apkey="8">8</button><button data-apkey="9">9</button>
+      <button data-apkey="del">⌫</button><button data-apkey="0">0</button><button data-apkey="ok">OK</button>
+    </div>
+    <div id="admin-pin-msg" class="msg"></div>
+  </main>
+
+  <main id="view-admin" class="view">
+    <button class="back" data-back>← Regresar</button>
+    <h2>Panel</h2>
+    <section id="admin-alerts" class="alerts"></section>
+
+    <section class="toolbar">
+      <button id="btn-add-student" class="primary">Añadir alumno</button>
+      <button id="btn-export">Exportar respaldo</button>
+      <label class="import-label">Importar <input type="file" id="file-import" accept="application/json"></label>
+      <button id="btn-reset" class="danger">Reiniciar todo</button>
+    </section>
+
+    <section class="admin-settings">
+      <details>
+        <summary>Ajustes</summary>
+        <label>PIN de administrador
+          <input id="admin-pin-input" type="password" inputmode="numeric" maxlength="4" placeholder="0000">
+        </label>
+        <button id="btn-save-admin-pin">Guardar PIN</button>
+      </details>
+    </section>
+
+    <section id="students-list">
+      <h3>Alumnos</h3>
+      <div id="students"></div>
+    </section>
+  </main>
+
+  <dialog id="dlg-student">
+    <form method="dialog" id="form-student">
+      <h3 id="dlg-title">Alumno</h3>
+      <label>Nombre completo<input name="name" required></label>
+      <label>Código de acceso (4 dígitos)<input name="pin" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required></label>
+      <label>Teléfono<input name="phone"></label>
+      <label>Teléfono de emergencia<input name="emergency"></label>
+      <label>Fecha de nacimiento<input name="birthdate" type="date"></label>
+      <label>Dirección<textarea name="address" rows="2"></textarea></label>
+      <label>Forma de pago<select name="payment">
+        <option value="">—</option>
+        <option>Efectivo</option>
+        <option>Transferencia</option>
+      </select></label>
+
+      <fieldset>
+        <legend>Paquete</legend>
+        <label>Tipo
+          <select name="pkgType" required>
+            <option value="suelta">Clase suelta</option>
+            <option value="dos">2 clases</option>
+            <option value="cuatro">4 clases</option>
+            <option value="seis">6 clases</option>
+            <option value="ocho">8 clases</option>
+            <option value="diez">10 clases</option>
+            <option value="doce">12 clases</option>
+            <option value="mes">Mes completo</option>
+          </select>
+        </label>
+        <label>Inicio<input name="startDate" type="date" required></label>
+        <label>Fin<input name="endDate" type="date" required></label>
+        <label>Clases restantes<input name="remaining" type="number" min="0" step="1"></label>
+      </fieldset>
+
+      <div class="photo-row">
+        <img id="student-photo-preview" alt="Foto" />
+        <input id="student-photo-input" type="file" accept="image/*" capture="environment">
+        <button id="btn-take-photo" type="button">Tomar/Actualizar foto</button>
+      </div>
+
+      <menu>
+        <button value="cancel">Cancelar</button>
+        <button id="btn-save-student" value="save" class="primary">Guardar</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-resched">
+    <form method="dialog" id="form-resched">
+      <h3>Reagendar paquete</h3>
+      <label>Tipo
+        <select name="pkgType" required>
+          <option value="suelta">Clase suelta</option>
+          <option value="dos">2 clases</option>
+          <option value="cuatro">4 clases</option>
+          <option value="seis">6 clases</option>
+          <option value="ocho">8 clases</option>
+          <option value="diez">10 clases</option>
+          <option value="doce">12 clases</option>
+          <option value="mes">Mes completo</option>
+        </select>
+      </label>
+      <label>Inicio<input name="startDate" type="date" required></label>
+      <label>Fin<input name="endDate" type="date" required></label>
+      <label>Clases restantes<input name="remaining" type="number" min="0" step="1"></label>
+      <menu>
+        <button value="cancel">Cancelar</button>
+        <button id="btn-resched-save" value="save" class="primary">Guardar</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <footer>
+    <small>Hecho para Academia de Danza NH • Local y sin internet • v1.0</small>
+  </footer>
+
   <script src="app.js"></script>
 </body>
 </html>
