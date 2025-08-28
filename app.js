@@ -158,16 +158,34 @@ function todayISO() {
 }
 
 // UI logic
+
+// iOS double-tap zoom guard
+let __lastTouchEnd=0;
+document.addEventListener('touchend', function(e){
+  const now = Date.now();
+  if (now - __lastTouchEnd <= 300) {
+    e.preventDefault();
+  }
+  __lastTouchEnd = now;
+}, {passive:false});
+
 const views = {
   home: document.getElementById('view-home'),
   alumno: document.getElementById('view-alumno'),
   adminPin: document.getElementById('view-admin-pin'),
   admin: document.getElementById('view-admin'),
 };
+
 function show(id) {
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   id.classList.add('active');
+  // Reset Admin PIN state when opening its view
+  if (id === views.adminPin) {
+    apInputs.forEach(i=>i.value='');
+    adminPinMsg.textContent = '';
+  }
 }
+
 
 // Routing
 document.getElementById('btn-alumno').addEventListener('click', ()=>show(views.alumno));

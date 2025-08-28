@@ -43,3 +43,8 @@ footer{padding:10px 16px;border-top:1px solid #222;opacity:.8;text-align:center;
 .alerts h4{margin:.2rem 0 .2rem}
 .badge{display:inline-block;border:1px solid #665200;background:#332a00;color:#fbbf24;border-radius:999px;padding:2px 8px;font-size:.8rem;margin-left:6px}
     
+/* iOS: evita zoom por doble toque y por inputs pequeños */
+html{-webkit-text-size-adjust:100%}
+button,input,select,textarea{font-size:16px; touch-action:manipulation}
+.keypad button{min-height:56px}
+    
