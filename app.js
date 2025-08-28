@@ -1,6 +1,6 @@
 
-// Academia NH — Accesos v5
-// Consolidado con todas las correcciones
+// Academia NH — Accesos v6
+// Nuevos: Quick List (A–Z) y Re-agendar desde Perfil cuando queda 1 clase
 
 const $ = (sel, parent=document)=>parent.querySelector(sel);
 const $$ = (sel, parent=document)=>Array.from(parent.querySelectorAll(sel));
@@ -30,6 +30,7 @@ function monthRange(ym){ const [y,m]=ym.split('-').map(Number); return {start:ne
 function dateToISO(d){ const dd=new Date(d); dd.setHours(0,0,0,0); return dd.toISOString().slice(0,10); }
 function clamp(n,min,max){return Math.max(min,Math.min(max,n));}
 function banner(msg, ms=4000){ const el=$('#banner'); el.textContent=msg; el.classList.remove('hidden'); setTimeout(()=>el.classList.add('hidden'), ms); }
+function nextMonthYM(){ const d=new Date(); return ymISO(new Date(d.getFullYear(), d.getMonth()+1, 1)); }
 
 // Voz preferida "Mónica" (español)
 function preferredSpanishVoice(){
@@ -47,10 +48,7 @@ function speak(text){
       const u = new SpeechSynthesisUtterance(text);
       const v = preferredSpanishVoice();
       if (v){ u.voice=v; u.lang=v.lang; } else { u.lang='es-MX'; }
-      u.rate = 0.98;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
-      return;
+      u.rate = 0.98; window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); return;
     }
   }catch(e){}
   const beep = $('#beep'); if (beep){ beep.currentTime=0; beep.play(); }
@@ -199,7 +197,7 @@ $$('.tabs button').forEach(btn=>{
     $('#'+btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab==='tab-listado'){ refreshTabla(); hideHistorial(); }
     if (btn.dataset.tab==='tab-agendar'){ renderCalendar(); }
-    if (btn.dataset.tab==='tab-ajustes'){ $('#ajPinAdmin').value=DB.getAdminPin(); populatePricesUI(); populateVoices(); }
+    if (btn.dataset.tab==='tab-ajustes'){ $('#ajPinAdmin').value=DB.getAdminPin(); populatePricesUI(); }
     if (btn.dataset.tab==='tab-pagos'){ populatePagosUI(); }
   });
 });
@@ -225,8 +223,9 @@ $('#formAlumno').addEventListener('submit', async (ev)=>{
   students[pin]=stu; DB.setStudents(students);
   $('#alNombre').dataset.editing=pin;
   alert('Alumno guardado.');
-  populateAlumnoSelect(); refreshTabla(); populatePagosUI();
+  populateAlumnoSelect(); refreshTabla(); populatePagosUI(); // se actualizan tabla y quick list inmediatamente
 });
+
 $('#btnEditarAlumno').addEventListener('click', ()=>{
   const students=DB.getStudents();
   const pin=prompt('PIN a editar:');
@@ -239,6 +238,7 @@ $('#btnEditarAlumno').addEventListener('click', ()=>{
   $('#alTelefono').value=stu.phone||'';
   $('#alNacimiento').value=stu.birth||'';
 });
+
 $('#btnEliminarAlumno').addEventListener('click', ()=>{
   const key=$('#alNombre').dataset.editing || $('#alPin').value.trim();
   if (!key){ alert('Selecciona o crea un alumno'); return; }
@@ -302,9 +302,10 @@ $('#btnGuardarCalendario').addEventListener('click', ()=>{
   alert('Calendario guardado.'); refreshTabla(); populatePagosUI();
 });
 
-// Listado & historial (toggle con Perfil)
+// Quick List (A–Z) + Tabla + Perfil toggle
 function refreshTabla(){
   sweepExpired();
+  renderQuickList();
   const tbody=$('#tablaAlumnos tbody'); tbody.innerHTML='';
   const students=DB.getStudents();
   const pins=Object.keys(students).sort((a,b)=> (students[a].name||'').localeCompare(students[b].name||''));
@@ -317,25 +318,78 @@ function refreshTabla(){
   $$('#tablaAlumnos .mini').forEach(b=>b.addEventListener('click', ()=>togglePerfil(b.dataset.pin)));
   hideHistorial();
 }
+function renderQuickList(){
+  const container = $('#quickList'); container.innerHTML='';
+  const students = DB.getStudents();
+  const arr = Object.values(students).sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+  // Agrupar por inicial
+  const groups = {};
+  arr.forEach(stu=>{
+    const letter = (stu.name||'#').trim().charAt(0).toUpperCase() || '#';
+    groups[letter] = groups[letter] || [];
+    groups[letter].push(stu);
+  });
+  Object.keys(groups).sort().forEach(letter=>{
+    const box=document.createElement('div'); box.className='qgroup';
+    box.innerHTML=`<h5>${letter}</h5>`;
+    groups[letter].forEach(stu=>{
+      const item=document.createElement('div'); item.className='qitem';
+      const img=document.createElement('img'); img.src=stu.photoDataUrl||'assets/icon-192.png';
+      const name=document.createElement('div'); name.className='name'; name.textContent=`${stu.name||''} — ${stu.pin||''}`;
+      const btn=document.createElement('button'); btn.textContent='Perfil'; btn.addEventListener('click', ()=>togglePerfil(stu.pin));
+      item.appendChild(img); item.appendChild(name); item.appendChild(btn);
+      box.appendChild(item);
+    });
+    container.appendChild(box);
+  });
+}
 function hideHistorial(){ const cont=$('#historial'); cont.classList.add('hidden'); cont.innerHTML=''; state.historyVisible=false; state.currentProfilePin=null; }
 function togglePerfil(pin){
   if (state.currentProfilePin===pin && state.historyVisible){ hideHistorial(); return; }
   state.currentProfilePin=pin; state.historyVisible=true; showPerfil(pin);
+}
+function prefillReagendar(pin){
+  // Ir a pestaña Agendar con alumno seleccionado y el **mes siguiente**
+  $$('.tabs button').forEach(b=>b.classList.remove('active')); $('[data-tab="tab-agendar"]').classList.add('active');
+  $$('.tab').forEach(t=>t.classList.remove('active')); $('#tab-agendar').classList.add('active');
+  $('#agAlumno').value = pin;
+  const ymNext = nextMonthYM();
+  $('#agMes').value = ymNext;
+  // Copiar qty/precio del último mes si existe
+  const st = DB.getStudents(); const su = st[pin]; const months = su && su.schedules ? Object.keys(su.schedules).sort() : [];
+  if (months.length){
+    const last = su.schedules[months[months.length-1]];
+    if (last && last.qty){ $('#agCantidad').value = String(last.qty); }
+    const s = DB.getSettings(); const q = parseInt($('#agCantidad').value,10); $('#agPrecio').value = (last && last.price!=null) ? last.price : (s.prices?.[q] ?? 0);
+  }
+  renderCalendar();
 }
 function showPerfil(pin){
   const container=$('#historial'); container.classList.remove('hidden'); container.innerHTML='';
   const students=DB.getStudents(); const stu=students[pin]; if (!stu){ container.textContent='Alumno no encontrado'; return; }
   const rem=remainingClasses(stu); const venc=monthEndForStudent(stu)||'—';
   const hdr=document.createElement('div');
-  hdr.innerHTML=`<h4>${stu.name} — ${pin}</h4><p>Tel: ${stu.phone||'—'} • Nac: ${stu.birth||'—'}</p><p>Clases restantes: ${rem} • Vence: ${venc}</p>`;
+  const actions = rem===1 ? `<div class="actions"><button id="btnReagendarNow">Re‑agendar mes siguiente</button></div>` : '';
+  hdr.innerHTML=`<h4>${stu.name} — ${pin}</h4>
+    <p>Tel: ${stu.phone||'—'} • Nac: ${stu.birth||'—'}</p>
+    <p>Clases restantes: ${rem} • Vence: ${venc}</p>${actions}`;
   container.appendChild(hdr);
+  if (rem===1){
+    $('#btnReagendarNow').addEventListener('click', ()=> prefillReagendar(pin));
+  }
+
   const hist=document.createElement('div'); hist.innerHTML='<h4>Historial</h4>';
   const list=document.createElement('div'); list.id='histList';
-  (stu.history||[]).forEach(h=>{ const row=document.createElement('div'); row.className='hist-item'; row.dataset.id=h.id||''; const when=new Date(h.ts||Date.now()).toLocaleString('es-MX'); row.innerHTML=`<span class="tag">${h.type}</span><span>${when}</span><span>${h.date||''}</span><span>${h.note||''}</span>`; list.appendChild(row); });
+  (stu.history||[]).forEach(h=>{
+    const row=document.createElement('div'); row.className='hist-item'; row.dataset.id=h.id||'';
+    const when=new Date(h.ts||Date.now()).toLocaleString('es-MX');
+    row.innerHTML=`<span class="tag">${h.type}</span><span>${when}</span><span>${h.date||''}</span><span>${h.note||''}</span>`;
+    list.appendChild(row);
+  });
   hist.appendChild(list); container.appendChild(hist);
 }
 
-// Export mensual
+// Export mensual (igual)
 $('#btnExportarMes').addEventListener('click', ()=>{
   const ym=$('#expMes').value || ymISO(new Date());
   const students=DB.getStudents();
@@ -361,7 +415,7 @@ $('#btnExportarMes').addEventListener('click', ()=>{
   const w=window.open('', '_blank'); w.document.write(html); w.document.close(); setTimeout(()=> w.print(), 300);
 });
 
-// Pagos
+// Pagos (igual)
 function populatePagosUI(){
   const students=DB.getStudents(); const sel=$('#pgAlumno'); sel.innerHTML='';
   const pins=Object.keys(students).sort((a,b)=> (students[a].name||'').localeCompare(students[b].name||''));
@@ -383,22 +437,17 @@ function renderPagos(pin, ym){
   $('#pgEliminarMes').onclick=()=>{ if (confirm('¿Eliminar TODOS los pagos de este mes?')){ const st=DB.getStudents(); const su=st[pin]; if (su.payments && su.payments[ym]) delete su.payments[ym]; st[pin]=su; DB.setStudents(st); renderPagos(pin,ym); } };
 }
 
-// Ajustes (PIN/voz/precios)
+// Ajustes (PIN y precios)
 $('#ajPinAdmin').addEventListener('change', (e)=>{ const v=e.target.value.trim(); if (/^\d{4}$/.test(v)){ DB.setAdminPin(v); speak('PIN actualizado'); } else alert('PIN inválido'); });
 function populatePricesUI(){ const grid=$('#ajPrecios'); const s=DB.getSettings(); grid.innerHTML=''; for(let i=1;i<=12;i++){ const w=document.createElement('div'); w.innerHTML=`<label>${i===1?'Clase suelta (1)':i+' clases'}<input type="number" step="1" min="0" data-qty="${i}" value="${s.prices?.[i]??0}"></label>`; grid.appendChild(w); } }
 $('#btnGuardarPrecios').addEventListener('click', ()=>{ const s=DB.getSettings(); s.prices=s.prices||{}; $$('#ajPrecios input[type="number"]').forEach(inp=>{ const q=parseInt(inp.dataset.qty,10); s.prices[q]=parseFloat(inp.value||'0'); }); DB.setSettings(s); alert('Precios guardados.'); });
-function populateVoices(){ const sel=$('#ajVoz'); if(!sel) return; sel.innerHTML=''; let list=[]; try{ list=speechSynthesis.getVoices()||[]; }catch(e){ list=[]; } const auto=document.createElement('option'); auto.value=''; auto.textContent='Automática (Mónica/ES)'; sel.appendChild(auto); list.forEach(v=>{ const o=document.createElement('option'); o.value=v.name; o.textContent=`${v.name} (${v.lang})`; sel.appendChild(o); }); }
-$('#btnProbarVoz').addEventListener('click', ()=> speak('Esta es una prueba de voz en español con Mónica, si está disponible.'));
-$('#btnPermitirNotifs').addEventListener('click', async ()=>{ try{ if('Notification' in window){ const perm=await Notification.requestPermission(); alert('Permiso: '+perm); } else alert('No compatible.'); }catch(e){ alert('No fue posible.'); } });
-$('#btnBackup').addEventListener('click', ()=>{ const data={students:DB.getStudents(), settings:DB.getSettings(), adminPin:DB.getAdminPin()}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='backup_academia_v5.json'; document.body.appendChild(a); a.click(); setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); },0); });
-$('#inputRestore').addEventListener('change', async (e)=>{ const file=e.target.files[0]; if(!file) return; try{ const text=await file.text(); const data=JSON.parse(text); if(data.students) localStorage.setItem('students',JSON.stringify(data.students)); if(data.settings) localStorage.setItem('settings',JSON.stringify(data.settings)); if(data.adminPin) localStorage.setItem('adminPin',data.adminPin); alert('Datos restaurados.'); populateAlumnoSelect(); refreshTabla(); populatePricesUI(); populatePagosUI(); hideHistorial(); }catch(err){ alert('Archivo inválido.'); } });
 
 // Init
 function init(){
   ensureDefaults(); sweepExpired(); setMode('alumno');
   if ('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js'); }
   $('#expMes').value = ymISO(new Date());
-  // "Desbloquear" voces en algunos navegadores
+  // voces
   if ('speechSynthesis' in window){
     if (!speechSynthesis.getVoices().length){
       window.speechSynthesis.onvoiceschanged = ()=>{};
