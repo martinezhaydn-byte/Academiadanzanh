@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#12123a">
+  <meta name="theme-color" content="#11113a">
   <title>Academia de Danza NH — Accesos</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="assets/icon-192.png">
@@ -26,25 +26,19 @@
       <button class="mode-btn" data-mode="admin">Modo Administrador</button>
     </section>
 
-    <!-- Avisos globales -->
     <div id="banner" class="banner hidden"></div>
 
-    <!-- MODO ALUMNO -->
+    <!-- Alumno -->
     <section id="alumno" class="card hidden">
       <h2>Entrada de Alumno</h2>
       <p class="desc">Ingresa tu clave de 4 dígitos</p>
-
-      <div class="pin-display" id="studentPinDisplay">
-        <span>•</span><span>•</span><span>•</span><span>•</span>
-      </div>
-
-      <div class="keypad" data-target="student" role="group" aria-label="Teclado numérico alumno">
+      <div class="pin-display" id="studentPinDisplay"><span>•</span><span>•</span><span>•</span><span>•</span></div>
+      <div class="keypad" data-target="student">
         <button>1</button><button>2</button><button>3</button>
         <button>4</button><button>5</button><button>6</button>
         <button>7</button><button>8</button><button>9</button>
         <button class="alt">←</button><button>0</button><button class="alt">⟲</button>
       </div>
-
       <button class="primary" id="studentEnter">Entrar</button>
 
       <div id="alumnoResult" class="result hidden">
@@ -59,22 +53,17 @@
       </div>
     </section>
 
-    <!-- MODO ADMIN -->
+    <!-- Admin -->
     <section id="admin" class="card hidden">
       <h2>Acceso Administrador</h2>
       <p class="desc">Ingresa tu código de 4 dígitos</p>
-
-      <div class="pin-display" id="adminPinDisplay">
-        <span>•</span><span>•</span><span>•</span><span>•</span>
-      </div>
-
-      <div class="keypad" data-target="admin" role="group" aria-label="Teclado numérico admin">
+      <div class="pin-display" id="adminPinDisplay"><span>•</span><span>•</span><span>•</span><span>•</span></div>
+      <div class="keypad" data-target="admin">
         <button>1</button><button>2</button><button>3</button>
         <button>4</button><button>5</button><button>6</button>
         <button>7</button><button>8</button><button>9</button>
         <button class="alt">←</button><button>0</button><button class="alt">⟲</button>
       </div>
-
       <button class="primary" id="adminEnter">Entrar</button>
 
       <div id="adminPanel" class="admin hidden">
@@ -149,7 +138,6 @@
             <button id="btnMesAnterior">◀ Mes anterior</button>
             <button id="btnMesSiguiente">Mes siguiente ▶</button>
           </div>
-          <p class="helper">Selecciona hasta la **Cantidad** elegida. Precio se guarda en el mes del alumno.</p>
         </section>
 
         <section id="tab-listado" class="tab">
@@ -162,7 +150,7 @@
             <button id="btnExportarMes" class="primary">Exportar historial mensual (PDF)</button>
             <label>Mes <input type="month" id="expMes"></label>
           </div>
-          <div id="historial" class="history"></div>
+          <div id="historial" class="history hidden"></div>
         </section>
 
         <section id="tab-pagos" class="tab">
@@ -191,7 +179,7 @@
             <input type="text" id="ajPinAdmin" pattern="\d{4}" maxlength="4" inputmode="numeric" autocomplete="off">
           </label>
           <div class="row">
-            <label>Voz (Español)
+            <label>Voz (Español, “Mónica” preferida)
               <select id="ajVoz"></select>
             </label>
             <button id="btnProbarVoz">Probar voz</button>
@@ -211,10 +199,7 @@
     </section>
   </main>
 
-  <footer class="foot">
-    <small>v3.0 — PWA offline • © Academia de Danza NH</small>
-  </footer>
-
+  <footer class="foot"><small>v5.0 — PWA offline • © Academia de Danza NH</small></footer>
   <audio id="beep" src="assets/beep.wav" preload="auto"></audio>
   <script src="app.js"></script>
 </body>
