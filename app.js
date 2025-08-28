@@ -1,655 +1,521 @@
+// Academia NH · Control de Acceso
+// Datos en localStorage: nh_danza_v2
+const STORE_KEY = 'nh_danza_v2';
 
-// ===== Utilidades de almacenamiento =====
-const DB_KEY = "danzaDB_v3";
-
-const defaultConfig = {
-  adminPin: "2580",
-  precios: { "1": 80, "2": 150, "4": 280, "6": 380, "8": 480, "9": 540, "10": 600, "11": 660, "12": 720, "mes": 600 },
-  voice: { volume: 1, rate: 0.95, selectedVoiceURI: null }
+// Estado en memoria
+let state = {
+  adminPin: '2025',
+  paquetes: [
+    {id:'suelta', nombre:'Clase suelta', clases:1, monto:90},
+    {id:'p2', nombre:'2 clases', clases:2, monto:170},
+    {id:'p4', nombre:'4 clases', clases:4, monto:320},
+    {id:'p6', nombre:'6 clases', clases:6, monto:450},
+    {id:'p8', nombre:'8 clases', clases:8, monto:560},
+    {id:'p10', nombre:'10 clases', clases:10, monto:650},
+    {id:'p12', nombre:'12 clases', clases:12, monto:720},
+  ],
+  alumnos: [], // {id, codigo, nombre, paqueteId, totalClases, clasesRestantes, montoPaquete, fotoData, pagos:[], asistencias:[]}
+  últimoId: 1,
 };
 
-function loadDB() {
-  const raw = localStorage.getItem(DB_KEY);
-  if (!raw) {
-    const db = { config: defaultConfig, alumnos: [] };
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
-    return db;
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    // merge defaults for new fields
-    if (!parsed.config) parsed.config = structuredClone(defaultConfig);
-    parsed.config.precios = { ...defaultConfig.precios, ...(parsed.config.precios||{}) };
-    parsed.config.voice = { ...defaultConfig.voice, ...(parsed.config.voice||{}) };
-    if (!Array.isArray(parsed.alumnos)) parsed.alumnos = [];
-    return parsed;
-  } catch {
-    const db = { config: defaultConfig, alumnos: [] };
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
-    return db;
-  }
+// Utilidades
+const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+const nowISO = () => new Date().toISOString();
+
+function save(){
+  localStorage.setItem(STORE_KEY, JSON.stringify(state));
 }
-function saveDB(db) { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
-
-function mxn(n) { return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n||0)); }
-
-// ===== VOZ (Web Speech API) =====
-let cachedVoices = [];
-function getSpanishVoice() {
-  cachedVoices = window.speechSynthesis?.getVoices?.() || [];
-  const db = loadDB();
-  // If user selected a specific voice, try to use it
-  if (db.config.voice.selectedVoiceURI) {
-    const sel = cachedVoices.find(v => v.voiceURI === db.config.voice.selectedVoiceURI);
-    if (sel) return sel;
-  }
-  // Prefer Spanish voices, likely female names
-  const preferLangs = ["es-MX","es-419","es-ES","es"];
-  const femaleNames = ["Mónica","Monica","Paulina","Camila","Luciana","Marisol","Elena","Sofia","Sofía","Isabela","Carla"];
-  // Filter spanish voices
-  const esVoices = cachedVoices.filter(v => (v.lang||"").toLowerCase().startsWith("es"));
-  // Try female name match first
-  for (const name of femaleNames) {
-    const v = esVoices.find(v => (v.name||"").toLowerCase().includes(name.toLowerCase()));
-    if (v) return v;
-  }
-  // Fallback: any spanish voice
-  if (esVoices.length) return esVoices[0];
-  // Last resort: any voice
-  return cachedVoices[0] || null;
-}
-
-// ===== Estado UI =====
-const alumnoSection = document.getElementById("alumnoSection");
-const adminSection = document.getElementById("adminSection");
-const btnAlumno = document.getElementById("btnAlumno");
-const btnAdmin = document.getElementById("btnAdmin");
-
-btnAlumno.addEventListener("click", ()=>switchMode("alumno"));
-btnAdmin.addEventListener("click", ()=>switchMode("admin"));
-
-function switchMode(mode) {
-  if (mode === "alumno") {
-    alumnoSection.classList.remove("hidden");
-    adminSection.classList.add("hidden");
-    btnAlumno.classList.add("active"); btnAlumno.setAttribute("aria-pressed", "true");
-    btnAdmin.classList.remove("active"); btnAdmin.setAttribute("aria-pressed", "false");
-    resetAlumnoUI();
-  } else {
-    alumnoSection.classList.add("hidden");
-    adminSection.classList.remove("hidden");
-    btnAlumno.classList.remove("active"); btnAlumno.setAttribute("aria-pressed", "false");
-    btnAdmin.classList.add("active"); btnAdmin.setAttribute("aria-pressed", "true");
-    document.getElementById("adminLoginFeedback").textContent = "";
-    document.getElementById("formAdminLogin").reset();
-    document.getElementById("adminPanel").classList.add("hidden");
-  }
-}
-
-// ===== Lógica Modo Alumno =====
-let pinBuffer = "";
-const pinDisplay = document.getElementById("pinDisplay");
-const alumnoFeedback = document.getElementById("alumnoFeedback");
-const perfilCard = document.getElementById("alumnoPerfil");
-const perfilFoto = document.getElementById("perfilFoto");
-const perfilNombre = document.getElementById("perfilNombre");
-const perfilPaquete = document.getElementById("perfilPaquete");
-const perfilRestantes = document.getElementById("perfilRestantes");
-const perfilFechas = document.getElementById("perfilFechas");
-const perfilUltimoPago = document.getElementById("perfilUltimoPago");
-const btnMarcarAsistencia = document.getElementById("btnMarcarAsistencia");
-const btnReagendar = document.getElementById("btnReagendar");
-const btnCerrarSesion = document.getElementById("btnCerrarSesion");
-const agendaAlumno = document.getElementById("agendaAlumno");
-const formReagendar = document.getElementById("formReagendar");
-const listaAgenda = document.getElementById("listaAgenda");
-
-let alumnoActual = null;
-let alumnoInactivityTimer = null;
-
-function renderPin() {
-  const arr = ["—","—","—","—"];
-  for (let i=0;i<pinBuffer.length;i++) arr[i] = "•";
-  pinDisplay.textContent = arr.join(" ");
-}
-
-function resetAlumnoUI() {
-  pinBuffer = ""; renderPin();
-  alumnoFeedback.textContent = "";
-  alumnoFeedback.className = "feedback";
-  perfilCard.classList.add("hidden");
-  agendaAlumno.classList.add("hidden");
-  alumnoActual = null;
-  clearTimeout(alumnoInactivityTimer);
-}
-
-document.querySelectorAll(".keypad .key").forEach(btn => {
-  btn.addEventListener("click", ()=>{
-    const action = btn.dataset.action;
-    if (action === "borrar") {
-      pinBuffer = "";
-      renderPin();
-      return;
-    }
-    if (action === "entrar") {
-      entrarConPin();
-      return;
-    }
-    if (pinBuffer.length < 4) {
-      pinBuffer += btn.textContent.trim();
-      renderPin();
-      if (pinBuffer.length === 4) entrarConPin();
-    }
-  });
-});
-
-function entrarConPin() {
-  if (pinBuffer.length !== 4) return;
-  const db = loadDB();
-  const alumno = db.alumnos.find(a => a.codigo === pinBuffer);
-  if (!alumno) {
-    alumnoFeedback.textContent = "Acceso denegado: código inexistente.";
-    alumnoFeedback.className = "feedback err";
-    speak("Acceso denegado");
-    pinBuffer = ""; renderPin();
-    return;
-  }
-  // Mostrar perfil
-  alumnoActual = alumno;
-  const db2 = loadDB();
-  const ref = db2.alumnos.find(a=> a.id === alumno.id);
-  const ok = (ref?.clasesRestantes||0) > 0;
-  if (ok) {
-    // Descontar automáticamente 1 clase al acceder
-    ref.clasesRestantes = (ref.clasesRestantes||0) - 1;
-    saveDB(db2);
-    mostrarPerfilAlumno(ref);
-    alumnoFeedback.textContent = "Acceso autorizado. Se descontó 1 clase.";
-    alumnoFeedback.className = "feedback ok";
-    speak("Acceso autorizado");
-    // Avisar si queda 1 clase
-    if (ref.clasesRestantes === 1) {
-      setTimeout(()=>{
-        alert("Aviso: te queda 1 clase. Realiza tu pago para re-agendar.");
-        speak("Aviso: te queda una clase. Realiza tu pago para re agendar.");
-      }, 300);
-    }
-  } else {
-    mostrarPerfilAlumno(ref || alumno);
-    alumnoFeedback.textContent = "Acceso denegado: sin clases disponibles";
-    alumnoFeedback.className = "feedback err";
-    speak("Acceso denegado");
-  }
-  // Auto limpiar sesión tras 30s si no hay interacción
-  clearTimeout(alumnoInactivityTimer);
-  alumnoInactivityTimer = setTimeout(()=>{
-    cerrarSesionAlumno();
-  }, 30000);
-}
-
-function mostrarPerfilAlumno(a) {
-  perfilCard.classList.remove("hidden");
-  perfilFoto.src = a.foto || "assets/default-avatar.png";
-  perfilNombre.textContent = a.nombre;
-  perfilPaquete.textContent = etiquetarPaquete(a.paquete);
-  perfilRestantes.textContent = a.clasesRestantes ?? 0;
-  perfilFechas.textContent = (a.inicio||"—") + " → " + (a.fin||"—");
-  const ultimo = (a.pagos||[]).slice(-1)[0];
-  perfilUltimoPago.textContent = ultimo ? `${mxn(ultimo.monto)} (${ultimo.metodo||"—"}) ${ultimo.fecha||""}` : "—";
-  // Re-agendar: sólo visible cuando le quede 1 clase, y se haya registrado un nuevo pago (después del último acceso)
-  actualizarBotonReagendar(a);
-  // Render de agenda
-  renderAgenda(a);
-}
-
-function etiquetarPaquete(p) {
-  const mapa = { "1":"Clase suelta (1)","2":"Dos clases (2)","4":"Cuatro clases (4)","6":"Seis clases (6)","8":"Ocho clases (8)","9":"Nueve clases (9)","10":"Diez clases (10)","11":"Once clases (11)","12":"Doce clases (12)","mes":"Mes completo" };
-  return mapa[p] || p;
-}
-
-function actualizarBotonReagendar(a) {
-  const puede = (a.clasesRestantes === 1);
-  btnReagendar.disabled = !puede;
-  btnReagendar.title = puede ? "Re-agendar requiere que se haya realizado un nuevo pago" : "Disponible cuando quede 1 clase";
-}
-
-btnMarcarAsistencia.addEventListener("click", ()=>{
-  if (!alumnoActual) return;
-  const db = loadDB();
-  const a = db.alumnos.find(x=> x.id === alumnoActual.id);
-  if (!a) return;
-  if ((a.clasesRestantes||0) <= 0) {
-    alumnoFeedback.textContent = "No hay clases disponibles";
-    alumnoFeedback.className = "feedback err";
-    speak("Acceso denegado");
-    return;
-  }
-  a.clasesRestantes = (a.clasesRestantes||0) - 1;
-  saveDB(db);
-  mostrarPerfilAlumno(a);
-  alumnoFeedback.textContent = "Asistencia registrada";
-  alumnoFeedback.className = "feedback ok";
-  speak("Acceso autorizado");
-});
-
-btnReagendar.addEventListener("click", ()=>{
-  if (!alumnoActual) return;
-  agendaAlumno.classList.toggle("hidden");
-});
-
-formReagendar.addEventListener("submit", (e)=>{
-  e.preventDefault();
-  if (!alumnoActual) return;
-  const db = loadDB();
-  const a = db.alumnos.find(x=> x.id === alumnoActual.id);
-  const fecha = document.getElementById("reagendarFecha").value;
-  if (!fecha) return;
-  // Reglas: sólo si hay un pago reciente (último pago en los últimos 7 días) o si clasesRestantes era 1
-  const ultimoPago = (a.pagos||[]).slice(-1)[0];
-  const tienePagoReciente = ultimoPago ? (Date.now() - new Date(ultimoPago.fecha||Date.now()).getTime() < 7*24*3600*1000) : false;
-  if ((a.clasesRestantes||0) > 1 && !tienePagoReciente) {
-    alert("Para re-agendar con más de 1 clase restante, registra primero el nuevo pago.");
-    return;
-  }
-  a.agenda = a.agenda || [];
-  a.agenda.push({ fecha });
-  saveDB(db);
-  renderAgenda(a);
-  alumnoFeedback.textContent = "Clase re-agendada";
-  alumnoFeedback.className = "feedback ok";
-});
-
-function renderAgenda(a) {
-  listaAgenda.innerHTML = "";
-  (a.agenda||[]).forEach((item, idx)=>{
-    const li = document.createElement("li");
-    const dt = new Date(item.fecha);
-    li.textContent = dt.toLocaleString();
-    const del = document.createElement("button");
-    del.textContent = "Eliminar";
-    del.className = "danger";
-    del.addEventListener("click", ()=>{
-      const db = loadDB();
-      const aa = db.alumnos.find(x=> x.id === a.id);
-      aa.agenda.splice(idx,1);
-      saveDB(db);
-      renderAgenda(aa);
+function load(){
+  const raw = localStorage.getItem(STORE_KEY);
+  if(raw){
+    try{ state = JSON.parse(raw); }catch(e){ console.warn('No se pudo cargar estado, usando por defecto', e); }
+  }else{
+    // Semilla con un alumno demo
+    state.alumnos.push({
+      id: state.últimoId++,
+      codigo: '1234',
+      nombre: 'Alumno Demo',
+      paqueteId: 'p4',
+      totalClases: 4,
+      clasesRestantes: 4,
+      montoPaquete: 320,
+      fotoData: '',
+      pagos: [{fecha: nowISO(), monto: 320, paquete: '4 clases', notas:'Inicial'}],
+      asistencias: []
     });
-    li.appendChild(document.createTextNode(" "));
-    li.appendChild(del);
-    listaAgenda.appendChild(li);
+    save();
+  }
+}
+load();
+
+// ---- Voz (mujer, español) ----
+let chosenVoice = null;
+function pickSpanishFemaleVoice(){
+  const voices = window.speechSynthesis.getVoices();
+  // Prioriza voces femeninas en español
+  const preferredNames = ['Google español', 'español (México)', 'es-MX', 'es-ES', 'Monica', 'Lucia', 'Valeria', 'Paulina'];
+  let candidates = voices.filter(v => v.lang.toLowerCase().startsWith('es'));
+  // intenta detectar género por nombre (heurística)
+  candidates.sort((a,b)=>{
+    const ascore = preferredNames.some(n=> (a.name||'').toLowerCase().includes(n.toLowerCase())) ? -1 : 0;
+    const bscore = preferredNames.some(n=> (b.name||'').toLowerCase().includes(n.toLowerCase())) ? -1 : 0;
+    return ascore - bscore;
+  });
+  chosenVoice = candidates[0] || null;
+}
+if ('speechSynthesis' in window){
+  window.speechSynthesis.onvoiceschanged = pickSpanishFemaleVoice;
+  // Llamada inicial
+  setTimeout(pickSpanishFemaleVoice, 400);
+}
+
+function speak(text){
+  try{
+    if(!('speechSynthesis' in window)) return;
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = (chosenVoice && chosenVoice.lang) || 'es-MX';
+    if(chosenVoice) utter.voice = chosenVoice;
+    utter.pitch = 1;
+    utter.rate = 1;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utter);
+  }catch(e){ console.warn('Error de voz', e); }
+}
+
+// ---- UI: modos ----
+const btnAlumno = $('#btnAlumno');
+const btnAdmin = $('#btnAdmin');
+const secAlumno = $('#secAlumno');
+const secAdmin = $('#secAdmin');
+const modeLabel = $('#modeLabel');
+btnAlumno.addEventListener('click', ()=> setMode('alumno'));
+btnAdmin.addEventListener('click', ()=> setMode('admin'));
+
+function setMode(m){
+  if(m==='alumno'){
+    btnAlumno.classList.add('active'); btnAdmin.classList.remove('active');
+    secAlumno.classList.remove('hidden'); secAdmin.classList.add('hidden');
+    modeLabel.textContent = 'Alumno';
+    clearAlumnoPad();
+  }else{
+    btnAdmin.classList.add('active'); btnAlumno.classList.remove('active');
+    secAdmin.classList.remove('hidden'); secAlumno.classList.add('hidden');
+    modeLabel.textContent = 'Administrador';
+    showAdminGate();
+  }
+}
+
+// ---- Alumno keypad (evita zoom usando botones) ----
+let alumnoCode = '';
+const alumnoHoles = [$('#dig1'),$('#dig2'),$('#dig3'),$('#dig4')];
+function renderAlumnoCode(){
+  const arr = alumnoCode.padEnd(4,' ').slice(0,4).split('');
+  arr.forEach((c,i)=> alumnoHoles[i].textContent = c.trim()==='' ? '•' : '•');
+}
+function clearAlumnoPad(){
+  alumnoCode=''; renderAlumnoCode(); $('#alumnoResultado').classList.add('hidden'); $('#alumnoResultado').innerHTML='';
+}
+function alumnoKey(k){
+  if(k==='del'){ alumnoCode = alumnoCode.slice(0,-1); renderAlumnoCode(); return; }
+  if(k==='go'){ validarAlumno(); return; }
+  if(alumnoCode.length<4 && /\d/.test(k)){ alumnoCode += k; renderAlumnoCode(); if(alumnoCode.length===4){ validarAlumno(); } }
+}
+$$('[data-k]').forEach(b=> b.addEventListener('click', ()=> alumnoKey(b.dataset.k)));
+
+// Busca alumno y descuenta sin botón de asistencia
+function validarAlumno(){
+  if(alumnoCode.length!==4){ speak('Código incompleto'); return; }
+  const alum = state.alumnos.find(a=> a.codigo===alumnoCode);
+  const res = $('#alumnoResultado');
+  if(!alum){
+    res.innerHTML = `<div class="row"><div class="pill">Resultado</div></div>
+      <div class="student-card" style="margin-top:10px">
+        <img alt="Sin foto">
+        <div>
+          <div class="danger"><strong>Acceso denegado</strong></div>
+          <div class="muted">Código incorrecto.</div>
+        </div>
+      </div>`;
+    res.classList.remove('hidden');
+    speak('Acceso denegado');
+    setTimeout(()=>{ res.classList.add('hidden'); clearAlumnoPad(); }, 2500);
+    return;
+  }
+  // Evita doble descuento si ya pasó hace poco
+  const lastAsist = alum.asistencias[alum.asistencias.length-1];
+  const now = Date.now();
+  if(lastAsist && (now - new Date(lastAsist.fecha).getTime()) < 90*1000){
+    // Solo muestra tarjeta sin descontar de nuevo
+    showAlumnoCard(alum, false, 'Acceso concedido');
+    speak('Acceso concedido');
+    setTimeout(()=>{ $('#alumnoResultado').classList.add('hidden'); clearAlumnoPad(); }, 4000);
+    return;
+  }
+
+  // Descuenta automáticamente
+  if(alum.clasesRestantes>0) alum.clasesRestantes -= 1;
+  alum.asistencias.push({fecha: new Date().toISOString()});
+  save();
+  let msg = 'Acceso concedido';
+  if(alum.clasesRestantes===1) msg += '. Te queda una clase, recuerda renovar.';
+  if(alum.clasesRestantes===0) msg += '. Ya no te quedan clases.';
+  showAlumnoCard(alum, true, msg);
+  speak(msg);
+  setTimeout(()=>{ $('#alumnoResultado').classList.add('hidden'); clearAlumnoPad(); }, 6000);
+}
+
+function showAlumnoCard(alum, descontado, msg){
+  const res = $('#alumnoResultado');
+  const foto = alum.fotoData ? `<img src="${alum.fotoData}" alt="Foto de ${alum.nombre}">` : `<img alt="Sin foto">`;
+  const paquete = state.paquetes.find(p=> p.id===alum.paqueteId);
+  const clasesTxt = `${alum.clasesRestantes}/${alum.totalClases} clases`;
+  const aviso = (alum.clasesRestantes<=1) ? `<span class="tag warn">Falta 1 clase</span>` : '';
+  res.innerHTML = `
+    <div class="row"><div class="pill">Resultado</div><div class="grow"></div><span class="muted">${new Date().toLocaleString()}</span></div>
+    <div class="student-card" style="margin-top:10px">
+      ${foto}
+      <div>
+        <div style="font-weight:700">${alum.nombre} <span class="muted">(${alum.codigo})</span></div>
+        <div class="${descontado?'success':'muted'}">${msg}</div>
+        <div class="row" style="gap:8px;margin-top:6px">
+          <span class="tag">${paquete?paquete.nombre:'Paquete'}</span>
+          <span class="tag">${clasesTxt}</span>
+          ${aviso}
+        </div>
+      </div>
+    </div>
+  `;
+  res.classList.remove('hidden');
+}
+
+// ---- Admin gate via keypad ----
+let adminCode = '';
+const adminHoles = [$('#a1'),$('#a2'),$('#a3'),$('#a4')];
+function renderAdminCode(){
+  const arr = adminCode.padEnd(4,' ').slice(0,4).split('');
+  arr.forEach((c,i)=> adminHoles[i].textContent = c.trim()==='' ? '•' : '•');
+}
+function clearAdminPad(){ adminCode=''; renderAdminCode(); }
+function adminKey(k){
+  if(k==='del'){ adminCode = adminCode.slice(0,-1); renderAdminCode(); return; }
+  if(k==='go'){ validarAdmin(); return; }
+  if(adminCode.length<4 && /\d/.test(k)){ adminCode += k; renderAdminCode(); if(adminCode.length===4){ validarAdmin(); } }
+}
+$$('[data-ak]').forEach(b=> b.addEventListener('click', ()=> adminKey(b.dataset.ak)));
+
+function showAdminGate(){
+  $('#adminGate').classList.remove('hidden');
+  $('#adminPanel').classList.add('hidden');
+  clearAdminPad();
+  $('#defpin').textContent = state.adminPin;
+}
+
+function validarAdmin(){
+  if(adminCode===state.adminPin){
+    $('#adminGate').classList.add('hidden');
+    $('#adminPanel').classList.remove('hidden');
+    paintPaquetes();
+    renderListaAlumnos();
+    $('#detalleAlumno').innerHTML = 'Selecciona un alumno para ver y editar su perfil.';
+  }else{
+    speak('Acceso denegado');
+    adminCode=''; renderAdminCode();
+  }
+}
+
+// ---- Admin panel ----
+const listaAlumnosDiv = $('#listaAlumnos');
+const buscar = $('#buscar');
+buscar.addEventListener('input', renderListaAlumnos);
+
+function renderListaAlumnos(){
+  const q = (buscar.value||'').toLowerCase();
+  let alumnos = state.alumnos.slice();
+  if(q){
+    alumnos = alumnos.filter(a=> (a.nombre.toLowerCase().includes(q) || a.codigo.includes(q)));
+  }
+  if(alumnos.length===0){
+    listaAlumnosDiv.innerHTML = '<div class="muted">Sin resultados.</div>';
+    return;
+  }
+  const rows = alumnos.map(a=>{
+    const paq = state.paquetes.find(p=> p.id===a.paqueteId);
+    const warn = (a.clasesRestantes<=1) ? '<span class="tag warn">Falta 1</span>' : '';
+    return `<div class="row" style="margin-bottom:8px">
+      <div class="grow">
+        <div style="font-weight:600">${a.nombre} <span class="muted">(${a.codigo})</span></div>
+        <div class="muted">${paq?paq.nombre:''} · ${a.clasesRestantes}/${a.totalClases} · $${a.montoPaquete}</div>
+      </div>
+      ${warn}
+      <button data-edit="${a.id}">Editar</button>
+    </div>`;
+  }).join('');
+  listaAlumnosDiv.innerHTML = rows;
+  $$('#listaAlumnos [data-edit]').forEach(btn=> btn.addEventListener('click', ()=> openAlumnoDetalle(parseInt(btn.dataset.edit)) ));
+}
+
+// Detalle alumno
+function openAlumnoDetalle(id){
+  const a = state.alumnos.find(x=> x.id===id);
+  if(!a) return;
+  const paqOpts = state.paquetes.map(p=> `<option value="${p.id}" ${p.id===a.paqueteId?'selected':''}>${p.nombre}</option>`).join('');
+  const foto = a.fotoData ? `<img src="${a.fotoData}" style="width:72px;height:72px;border-radius:10px;object-fit:cover;border:1px solid #374151;background:#0b1220">` : '<div class="muted">Sin foto</div>';
+  const pagosRows = a.pagos.map(p=> `<tr><td>${new Date(p.fecha).toLocaleString()}</td><td>$${p.monto}</td><td>${p.paquete||''}</td><td>${p.notas||''}</td></tr>`).join('') || '<tr><td colspan="4" class="faded">Sin pagos aún.</td></tr>';
+  const asistRows = a.asistencias.map(s=> `<tr><td>${new Date(s.fecha).toLocaleString()}</td></tr>`).join('') || '<tr><td class="faded">Sin asistencias aún.</td></tr>';
+
+  $('#detalleAlumno').innerHTML = `
+    <div class="grid two">
+      <div>
+        <div class="row" style="align-items:center;gap:12px">
+          ${foto}
+          <div style="font-size:18px;font-weight:700">${a.nombre} <span class="muted">(${a.codigo})</span></div>
+        </div>
+        <div class="grid two" style="margin-top:10px">
+          <div>
+            <label>Nombre</label>
+            <input id="detNombre" value="${a.nombre}">
+          </div>
+          <div>
+            <label>Código</label>
+            <input id="detCodigo" value="${a.codigo}" maxlength="4" pattern="\\d{4}" inputmode="numeric">
+          </div>
+        </div>
+        <div class="grid two">
+          <div>
+            <label>Paquete</label>
+            <select id="detPaquete">${paqOpts}</select>
+          </div>
+          <div>
+            <label>Monto paquete</label>
+            <input id="detMonto" type="number" min="0" step="1" value="${a.montoPaquete}">
+          </div>
+        </div>
+        <div class="grid three">
+          <div>
+            <label>Clases totales</label>
+            <input id="detTot" type="number" value="${a.totalClases}" min="1" step="1">
+          </div>
+          <div>
+            <label>Clases restantes</label>
+            <input id="detRest" type="number" value="${a.clasesRestantes}" min="0" step="1">
+          </div>
+          <div>
+            <label>Foto</label>
+            <input id="detFoto" type="file" accept="image/*">
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="btnGuardarAlumno" class="ok">Guardar cambios</button>
+          <div class="grow"></div>
+          <button id="btnEliminarAlumno" class="err">Eliminar</button>
+        </div>
+      </div>
+      <div>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <span class="tag">Asistencias: ${a.asistencias.length}</span>
+          <span class="tag">Restantes: ${a.clasesRestantes}</span>
+          ${a.clasesRestantes<=1?'<span class="tag warn">Puede re‑agendar</span>':''}
+        </div>
+        <div class="card" style="margin-top:8px">
+          <h4 style="margin:0">Pagos</h4>
+          <table class="table" style="margin-top:8px">
+            <thead><tr><th>Fecha</th><th>Monto</th><th>Paquete</th><th>Notas</th></tr></thead>
+            <tbody>${pagosRows}</tbody>
+          </table>
+          <div class="grid two" style="margin-top:10px">
+            <div>
+              <label>Monto (MXN)</label>
+              <input id="pagoMonto" type="number" min="0" step="1" placeholder="Ej. 560">
+            </div>
+            <div>
+              <label>Paquete</label>
+              <select id="pagoPaquete">${state.paquetes.map(p=>`<option value="${p.id}">${p.nombre}</option>`)}</select>
+            </div>
+          </div>
+          <label>Notas</label>
+          <input id="pagoNotas" placeholder="Opcional">
+          <div class="row" style="margin-top:8px">
+            <button id="btnRegistrarPago">Registrar pago</button>
+            <button id="btnReagendar" class="primary" ${a.clasesRestantes<=1?'':'disabled'}>Registrar pago y re‑agendar</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:8px">
+          <h4 style="margin:0">Asistencias</h4>
+          <table class="table" style="margin-top:8px">
+            <thead><tr><th>Fecha y hora</th></tr></thead>
+            <tbody>${asistRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Listeners detalle
+  $('#detFoto').addEventListener('change', async (e)=>{
+    const f = e.target.files[0]; if(!f) return;
+    const data = await fileToDataURL(f);
+    a.fotoData = data; save(); openAlumnoDetalle(id);
+  });
+  $('#btnGuardarAlumno').addEventListener('click', ()=>{
+    const nuevoCodigo = $('#detCodigo').value.trim();
+    if(!/^\d{4}$/.test(nuevoCodigo)) return alert('El código debe ser de 4 dígitos.');
+    if(state.alumnos.some(x=> x.codigo===nuevoCodigo && x.id!==id)) return alert('Ese código ya existe.');
+    a.nombre = $('#detNombre').value.trim() || a.nombre;
+    a.codigo = nuevoCodigo;
+    a.paqueteId = $('#detPaquete').value;
+    a.montoPaquete = parseInt($('#detMonto').value||a.montoPaquete,10);
+    a.totalClases = parseInt($('#detTot').value||a.totalClases,10);
+    a.clasesRestantes = parseInt($('#detRest').value||a.clasesRestantes,10);
+    save(); renderListaAlumnos(); openAlumnoDetalle(id);
+  });
+  $('#btnEliminarAlumno').addEventListener('click', ()=>{
+    if(confirm('¿Eliminar este alumno?')){
+      state.alumnos = state.alumnos.filter(x=> x.id!==id);
+      save(); renderListaAlumnos(); $('#detalleAlumno').innerHTML = 'Selecciona un alumno…';
+    }
+  });
+  $('#btnRegistrarPago').addEventListener('click', ()=>{
+    const monto = parseInt($('#pagoMonto').value||'0',10);
+    const paqueteId = $('#pagoPaquete').value;
+    const notas = $('#pagoNotas').value;
+    if(!monto) return alert('Indica el monto.');
+    const paq = state.paquetes.find(p=> p.id===paqueteId);
+    a.pagos.push({fecha: nowISO(), monto, paquete: paq?paq.nombre:'', notas});
+    save(); openAlumnoDetalle(id);
+    alert('Pago registrado');
+  });
+  $('#btnReagendar').addEventListener('click', ()=>{
+    const monto = parseInt($('#pagoMonto').value||'0',10);
+    const paqueteId = $('#pagoPaquete').value;
+    const notas = $('#pagoNotas').value || 'Re‑agendado';
+    if(!(a.clasesRestantes<=1)) return alert('Solo se puede re‑agendar cuando queda 1 clase.');
+    if(!monto) return alert('Indica el monto del pago.');
+    const paq = state.paquetes.find(p=> p.id===paqueteId);
+    const clases = paq? paq.clases : 0;
+    if(!clases) return alert('Selecciona un paquete válido.');
+    a.pagos.push({fecha: nowISO(), monto, paquete: paq.nombre, notas});
+    a.paqueteId = paqueteId;
+    a.totalClases = clases;
+    a.clasesRestantes = clases;
+    a.montoPaquete = monto;
+    save(); openAlumnoDetalle(id);
+    alert('Pago registrado y re‑agendado');
   });
 }
 
-btnCerrarSesion.addEventListener("click", cerrarSesionAlumno);
-function cerrarSesionAlumno() {
-  resetAlumnoUI();
-  speak("Sesión cerrada");
+async function fileToDataURL(file){
+  return new Promise((resolve,reject)=>{
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
 }
 
-// ===== Lógica admin =====
-const formAdminLogin = document.getElementById("formAdminLogin");
-const adminLoginFeedback = document.getElementById("adminLoginFeedback");
-const adminPanel = document.getElementById("adminPanel");
-formAdminLogin.addEventListener("submit", (e)=>{
-  e.preventDefault();
-  const pin = (document.getElementById("adminPin").value||"").trim();
-  const db = loadDB();
-  if (pin === db.config.adminPin) {
-    adminLoginFeedback.textContent = "Acceso de administrador concedido.";
-    adminLoginFeedback.className = "feedback ok";
-    adminPanel.classList.remove("hidden");
-    cargarTablaAlumnos();
-    cargarConfig();
-  } else {
-    adminLoginFeedback.textContent = "Código incorrecto.";
-    adminLoginFeedback.className = "feedback err";
-  }
+// Agregar alumno
+const selPaquete = $('#alPaquete');
+const inpMonto = $('#alMonto');
+const inpClases = $('#alClases');
+const inpFoto = $('#alFoto');
+
+function syncAddFormFromPaquete(){
+  const p = state.paquetes.find(x=> x.id===selPaquete.value);
+  if(!p) return;
+  if(!inpMonto.value) inpMonto.value = p.monto;
+  if(!inpClases.value) inpClases.value = p.clases;
+}
+function paintPaquetes(){
+  selPaquete.innerHTML = state.paquetes.map(p=> `<option value="${p.id}">${p.nombre}</option>`).join('');
+  $('#cfgPaquetes').innerHTML = state.paquetes.map((p,i)=>`
+    <div class="grid three" style="margin-bottom:8px">
+      <div><label>Nombre</label><input data-pname="${i}" value="${p.nombre}"></div>
+      <div><label>Clases</label><input data-pcls="${i}" type="number" min="1" step="1" value="${p.clases}"></div>
+      <div><label>Monto (MXN)</label><input data-pmnt="${i}" type="number" min="0" step="1" value="${p.monto}"></div>
+    </div>
+  `).join('');
+  syncAddFormFromPaquete();
+}
+paintPaquetes();
+selPaquete.addEventListener('change', ()=>{ inpMonto.value=''; inpClases.value=''; syncAddFormFromPaquete(); });
+
+$('#btnAddAlumno').addEventListener('click', async ()=>{
+  const nombre = $('#alNombre').value.trim();
+  const codigo = $('#alCodigo').value.trim();
+  if(!nombre) return alert('Escribe el nombre.');
+  if(!/^\d{4}$/.test(codigo)) return alert('El código debe ser de 4 dígitos.');
+  if(state.alumnos.some(a=> a.codigo===codigo)) return alert('Ese código ya existe.');
+  const p = state.paquetes.find(x=> x.id===selPaquete.value);
+  const monto = parseInt((inpMonto.value || (p?p.monto:0)),10)||0;
+  const clases = parseInt((inpClases.value || (p?p.clases:1)),10)||1;
+  let fotoData = '';
+  if(inpFoto.files && inpFoto.files[0]) fotoData = await fileToDataURL(inpFoto.files[0]);
+  const alumno = {
+    id: state.últimoId++,
+    codigo, nombre,
+    paqueteId: p?p.id:'',
+    totalClases: clases,
+    clasesRestantes: clases,
+    montoPaquete: monto,
+    fotoData,
+    pagos: monto ? [{fecha: nowISO(), monto, paquete: p?p.nombre:'', notas:'Inicial'}] : [],
+    asistencias: []
+  };
+  state.alumnos.push(alumno);
+  save();
+  // Limpia formulario
+  $('#alNombre').value=''; $('#alCodigo').value=''; inpMonto.value=''; inpClases.value=''; inpFoto.value=null;
+  renderListaAlumnos();
+  alert('Alumno agregado');
 });
 
-const tablaAlumnosTbody = document.querySelector("#tablaAlumnos tbody");
-const btnNuevoAlumno = document.getElementById("btnNuevoAlumno");
-const inputImportar = document.getElementById("inputImportar");
-const btnExportar = document.getElementById("btnExportar");
-const searchAlumno = document.getElementById("searchAlumno");
-
-btnExportar.addEventListener("click", ()=>{
-  const db = loadDB();
-  const blob = new Blob([JSON.stringify(db, null, 2)], {type:"application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "respaldo_academia.json";
+// Export / Import
+$('#btnExport').addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'danza_datos.json';
   a.click();
-  URL.revokeObjectURL(url);
+});
+$('#fileImport').addEventListener('change', async (e)=>{
+  const f = e.target.files[0]; if(!f) return;
+  const txt = await f.text();
+  try{
+    const data = JSON.parse(txt);
+    if(!data || !data.alumnos) return alert('Archivo inválido.');
+    state = data; save();
+    paintPaquetes(); renderListaAlumnos(); $('#detalleAlumno').innerHTML='Importado. Selecciona un alumno…';
+    alert('Datos importados');
+  }catch(err){ alert('No se pudo importar'); }
 });
 
-inputImportar.addEventListener("change", (e)=>{
-  const file = e.target.files?.[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = ()=>{
-    try {
-      const json = JSON.parse(reader.result);
-      if (!json || typeof json !== "object") throw new Error("Formato inválido");
-      saveDB(json);
-      alert("Importación exitosa");
-      cargarTablaAlumnos();
-      cargarConfig();
-    } catch(err) {
-      alert("Error al importar: " + err.message);
-    }
-  };
-  reader.readAsText(file);
+// Configuración
+$('#btnGuardarPin').addEventListener('click', ()=>{
+  const p = $('#cfgPin').value.trim();
+  if(!/^\d{4}$/.test(p)) return alert('El PIN debe ser de 4 dígitos.');
+  state.adminPin = p; save(); alert('PIN actualizado');
 });
-
-btnNuevoAlumno.addEventListener("click", ()=> abrirModalAlumno());
-
-searchAlumno.addEventListener("input", cargarTablaAlumnos);
-
-function cargarTablaAlumnos() {
-  const db = loadDB();
-  const term = (searchAlumno.value||"").toLowerCase();
-  const fil = db.alumnos.filter(a=> !term || a.nombre.toLowerCase().includes(term) || (a.codigo||"").includes(term));
-  tablaAlumnosTbody.innerHTML = "";
-  fil.forEach(a => {
-    const tr = document.createElement("tr");
-    const img = document.createElement("img"); img.src = a.foto || "assets/default-avatar.png";
-    const fotoTd = document.createElement("td"); fotoTd.appendChild(img);
-    const acciones = document.createElement("td");
-    const btnEditar = document.createElement("button"); btnEditar.textContent = "Editar"; btnEditar.addEventListener("click", ()=> abrirModalAlumno(a.id));
-    const btnEliminar = document.createElement("button"); btnEliminar.textContent = "Eliminar"; btnEliminar.className = "danger";
-    btnEliminar.addEventListener("click", ()=>{
-      if (!confirm("¿Eliminar alumno?")) return;
-      const db2 = loadDB();
-      db2.alumnos = db2.alumnos.filter(x=> x.id !== a.id);
-      saveDB(db2);
-      cargarTablaAlumnos();
-    });
-    acciones.append(btnEditar, document.createTextNode(" "), btnEliminar);
-
-    tr.innerHTML = `
-      <td></td>
-      <td>${a.nombre}</td>
-      <td>${a.codigo}</td>
-      <td>${etiquetarPaquete(a.paquete)}</td>
-      <td>${a.clasesRestantes ?? 0}</td>
-      <td>${(a.inicio||"—")} → ${(a.fin||"—")}</td>
-    `;
-    tr.children[0].appendChild(img);
-    tr.appendChild(acciones);
-    tablaAlumnosTbody.appendChild(tr);
+$('#btnGuardarPaquetes').addEventListener('click', ()=>{
+  state.paquetes.forEach((p,i)=>{
+    const n = document.querySelector(`[data-pname="${i}"]`).value;
+    const c = parseInt(document.querySelector(`[data-pcls="${i}"]`).value||p.clases,10);
+    const m = parseInt(document.querySelector(`[data-pmnt="${i}"]`).value||p.monto,10);
+    p.nombre = n; p.clases = c; p.monto = m;
   });
-}
-
-// ===== Modal Alumno (crear/editar) =====
-const modalAlumno = document.getElementById("modalAlumno");
-const formAlumno = document.getElementById("formAlumno");
-const modalAlumnoTitulo = document.getElementById("modalAlumnoTitulo");
-
-const alNombre = document.getElementById("alNombre");
-const alCodigo = document.getElementById("alCodigo");
-const alPaquete = document.getElementById("alPaquete");
-const alMonto = document.getElementById("alMonto");
-const alInicio = document.getElementById("alInicio");
-const alFin = document.getElementById("alFin");
-const alTel = document.getElementById("alTel");
-const alTelEmerg = document.getElementById("alTelEmerg");
-const alFNac = document.getElementById("alFNac");
-const alEdad = document.getElementById("alEdad");
-const alDir = document.getElementById("alDir");
-const alFormaPago = document.getElementById("alFormaPago");
-const alFoto = document.getElementById("alFoto");
-const alPagos = document.getElementById("alPagos");
-const btnAgregarPago = document.getElementById("btnAgregarPago");
-const pagoTemplate = document.getElementById("pagoTemplate");
-
-let editAlumnoId = null;
-
-function abrirModalAlumno(id=null) {
-  editAlumnoId = id;
-  const db = loadDB();
-  const cfg = db.config;
-  // Prellenar
-  alPagos.innerHTML = "";
-  if (id) {
-    const a = db.alumnos.find(x=> x.id === id);
-    modalAlumnoTitulo.textContent = "Editar alumno";
-    alNombre.value = a.nombre || "";
-    alCodigo.value = a.codigo || "";
-    alPaquete.value = a.paquete || "1";
-    alMonto.value = a.monto || cfg.precios[a.paquete] || 0;
-    alInicio.value = a.inicio || "";
-    alFin.value = a.fin || "";
-    alTel.value = a.tel || "";
-    alTelEmerg.value = a.telEmerg || "";
-    alFNac.value = a.fnac || "";
-    alEdad.value = a.edad || "";
-    alDir.value = a.dir || "";
-    alFormaPago.value = a.formaPago || "";
-    (a.pagos||[]).forEach(p=> agregarPagoUI(p));
-  } else {
-    modalAlumnoTitulo.textContent = "Nuevo alumno";
-    alNombre.value = "";
-    alCodigo.value = "";
-    alPaquete.value = "4";
-    alMonto.value = cfg.precios["4"];
-    const today = new Date();
-    alInicio.value = today.toISOString().slice(0,10);
-    const fin = new Date(today);
-    fin.setDate(fin.getDate()+30);
-    alFin.value = fin.toISOString().slice(0,10);
-    alTel.value = "";
-    alTelEmerg.value = "";
-    alFNac.value = "";
-    alEdad.value = "";
-    alDir.value = "";
-    alFormaPago.value = "";
+  save(); paintPaquetes(); alert('Paquetes guardados');
+});
+$('#btnReset').addEventListener('click', ()=>{
+  if(confirm('Esto borrará todos los datos y restablecerá la app.')){
+    localStorage.removeItem(STORE_KEY);
+    location.reload();
   }
-  if (typeof modalAlumno.showModal === "function") modalAlumno.showModal();
-  else modalAlumno.classList.remove("hidden");
-}
-
-alPaquete.addEventListener("change", ()=>{
-  const db = loadDB();
-  alMonto.value = db.config.precios[alPaquete.value] || 0;
 });
+$('#btnSalirAdmin').addEventListener('click', ()=> setMode('alumno'));
 
-btnAgregarPago.addEventListener("click", ()=> agregarPagoUI());
-
-function agregarPagoUI(pago=null) {
-  const clone = pagoTemplate.content.cloneNode(true);
-  const container = clone.querySelector(".pago-item");
-  const monto = clone.querySelector(".pago-monto");
-  const metodo = clone.querySelector(".pago-metodo");
-  const fecha = clone.querySelector(".pago-fecha");
-  const nota = clone.querySelector(".pago-nota");
-  const del = clone.querySelector(".pago-eliminar");
-  if (pago) {
-    monto.value = pago.monto ?? "";
-    metodo.value = pago.metodo ?? "";
-    fecha.value = pago.fecha ?? "";
-    nota.value = pago.nota ?? "";
-  } else {
-    fecha.value = new Date().toISOString().slice(0,10);
-  }
-  del.addEventListener("click", ()=> container.remove());
-  alPagos.appendChild(clone);
-}
-
-formAlumno.addEventListener("close", ()=>{
-  // noop
-});
-
-formAlumno.addEventListener("submit", (e)=>{
-  // Este evento no se dispara en <dialog> con method="dialog"; manejamos más abajo en botones
-});
-
-modalAlumno.addEventListener("close", ()=>{/* noop */});
-
-// Interceptar el click del botón "Guardar" del dialog
-formAlumno.querySelector('button[value="confirm"]').addEventListener("click", (ev)=>{
-  ev.preventDefault();
-  if (!alNombre.value.trim()) return alert("Falta el nombre");
-  if (!/^\d{4}$/.test(alCodigo.value)) return alert("El código debe ser de 4 dígitos");
-  const db = loadDB();
-  // Unicidad de código
-  const exists = db.alumnos.find(a=> a.codigo === alCodigo.value && a.id !== editAlumnoId);
-  if (exists) return alert("Ese código ya está en uso por " + exists.nombre);
-
-  const pagos = [];
-  alPagos.querySelectorAll(".pago-item").forEach(div => {
-    pagos.push({
-      monto: Number(div.querySelector(".pago-monto").value||0),
-      metodo: div.querySelector(".pago-metodo").value||"",
-      fecha: div.querySelector(".pago-fecha").value||"",
-      nota: div.querySelector(".pago-nota").value||""
-    });
+// ---- Service Worker PWA (opcional) ----
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
   });
-
-  const baseAlumno = {
-    nombre: alNombre.value.trim(),
-    codigo: alCodigo.value.trim(),
-    paquete: alPaquete.value,
-    monto: Number(alMonto.value||0),
-    inicio: alInicio.value || "",
-    fin: alFin.value || "",
-    tel: alTel.value || "",
-    telEmerg: alTelEmerg.value || "",
-    fnac: alFNac.value || "",
-    edad: alEdad.value || "",
-    dir: alDir.value || "",
-    formaPago: alFormaPago.value || "",
-    pagos,
-  };
-
-  // Foto
-  const photoInput = alFoto;
-  const finalize = (fotoDataUrl)=>{
-    baseAlumno.foto = fotoDataUrl || (editAlumnoId ? (db.alumnos.find(x=>x.id===editAlumnoId)?.foto||"") : "");
-    // clacular clasesRestantes iniciales en base al paquete si no existía
-    const paqueteMap = { "1":1,"2":2,"4":4,"6":6,"8":8,"9":9,"10":10,"11":11,"12":12,"mes": 9999 }; // "mes" se maneja como grande
-    if (editAlumnoId) {
-      const idx = db.alumnos.findIndex(x=> x.id === editAlumnoId);
-      if (idx >= 0) {
-        // conservar clasesRestantes si existe
-        baseAlumno.id = db.alumnos[idx].id;
-        baseAlumno.clasesRestantes = db.alumnos[idx].clasesRestantes ?? paqueteMap[baseAlumno.paquete] ?? 0;
-        baseAlumno.agenda = db.alumnos[idx].agenda || [];
-        db.alumnos[idx] = baseAlumno;
-      }
-    } else {
-      baseAlumno.id = crypto.randomUUID();
-      baseAlumno.clasesRestantes = paqueteMap[baseAlumno.paquete] ?? 0;
-      baseAlumno.agenda = [];
-      db.alumnos.push(baseAlumno);
-    }
-    saveDB(db);
-    modalAlumno.close();
-    cargarTablaAlumnos();
-  };
-
-  if (photoInput.files && photoInput.files[0]) {
-    const reader = new FileReader();
-    reader.onload = ()=> finalize(reader.result);
-    reader.readAsDataURL(photoInput.files[0]);
-  } else {
-    finalize(null);
-  }
-});
-
-formAlumno.querySelector('button[value="cancel"]').addEventListener("click", (ev)=>{
-  ev.preventDefault();
-  modalAlumno.close();
-});
-
-// ===== Configuración =====
-const formConfig = document.getElementById("formConfig");
-const cfgAdminPin = document.getElementById("cfgAdminPin");
-const precioInputs = {
-  "1": document.getElementById("precio1"),
-  "2": document.getElementById("precio2"),
-  "4": document.getElementById("precio4"),
-  "6": document.getElementById("precio6"),
-  "8": document.getElementById("precio8"),
-  "mes": document.getElementById("precioMes"),
-};
-const voiceVolume = document.getElementById("voiceVolume");
-const voiceRate = document.getElementById("voiceRate");
-const probarVoz = document.getElementById("probarVoz");
-
-
-const voiceSelect = document.getElementById("voiceSelect");
-
-function populateVoiceList() {
-  if (!voiceSelect) return;
-  voiceSelect.innerHTML = "";
-  cachedVoices = window.speechSynthesis?.getVoices?.() || [];
-  const esVoices = cachedVoices.filter(v => (v.lang||"").toLowerCase().startsWith("es"));
-  const db = loadDB();
-  const currentURI = db.config.voice.selectedVoiceURI;
-  esVoices.forEach(v => {
-    const opt = document.createElement("option");
-    opt.value = v.voiceURI;
-    opt.textContent = `${v.name} (${v.lang})`;
-    if (currentURI && v.voiceURI === currentURI) opt.selected = true;
-    voiceSelect.appendChild(opt);
-  });
-  // If nothing selected yet, select first spanish if available
-  if (!currentURI && esVoices[0]) {
-    voiceSelect.value = esVoices[0].voiceURI;
-    db.config.voice.selectedVoiceURI = esVoices[0].voiceURI;
-    saveDB(db);
-  }
-}
-
-if ('speechSynthesis' in window) {
-  window.speechSynthesis.onvoiceschanged = ()=>{
-    cachedVoices = window.speechSynthesis.getVoices();
-    populateVoiceList();
-  };
-  // Initial attempt
-  setTimeout(populateVoiceList, 300);
-}
-
-voiceSelect?.addEventListener("change", ()=>{
-  const db = loadDB();
-  db.config.voice.selectedVoiceURI = voiceSelect.value || null;
-  saveDB(db);
-});
-
-function cargarConfig() {
-  const db = loadDB();
-  cfgAdminPin.value = db.config.adminPin || "";
-  for (const k of Object.keys(precioInputs)) {
-    precioInputs[k].value = db.config.precios[k] ?? 0;
-  }
-  voiceVolume.value = db.config.voice.volume ?? 1;
-  voiceRate.value = db.config.voice.rate ?? 0.95;
-  if (document.getElementById("voiceSelect")) { populateVoiceList(); }
-}
-formConfig.addEventListener("submit", (e)=>{
-  e.preventDefault();
-  const db = loadDB();
-  db.config.adminPin = cfgAdminPin.value || db.config.adminPin;
-  for (const k of Object.keys(precioInputs)) {
-    db.config.precios[k] = Number(precioInputs[k].value||0);
-  }
-  db.config.voice.volume = Number(voiceVolume.value||1);
-  db.config.voice.rate = Number(voiceRate.value||1);
-  saveDB(db);
-  alert("Configuración guardada");
-});
-probarVoz.addEventListener("click", ()=>{
-  speak("Esta es una prueba de voz en español. Acceso autorizado.");
-});
-
-// ===== Inicialización =====
-switchMode("alumno");
-
-// Asegurar que las voces estén cargadas
-if ('speechSynthesis' in window) {
-  window.speechSynthesis.onvoiceschanged = ()=>{
-    cachedVoices = window.speechSynthesis.getVoices();
-  };
 }

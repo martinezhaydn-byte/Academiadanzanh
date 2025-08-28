@@ -1,257 +1,236 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Control de Accesos - Academia de Danza</title>
-  <link rel="manifest" href="manifest.json" />
-  <link rel="stylesheet" href="styles.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Academia NH · Control de Acceso</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#111827">
+  <style>
+    :root{
+      --bg:#0b1220; --card:#111827; --muted:#6b7280; --text:#f3f4f6; --accent:#22d3ee; --ok:#10b981; --err:#ef4444; --warn:#f59e0b;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(160deg,#0b1220,#0f182c 55%,#0b1220);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
+    .wrap{max-width:1100px;margin:0 auto;padding:16px 12px 100px}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:8px 0 16px}
+    .brand{display:flex;gap:12px;align-items:center}
+    .brand .logo{width:40px;height:40px;border-radius:10px;background:radial-gradient(circle at 30% 30%,#34d399,#22d3ee 40%,#818cf8);}
+    h1{font-size:20px;margin:0}
+    .mode-toggle{display:flex;border:1px solid #1f2937;background:#0b1220;border-radius:12px;overflow:hidden}
+    .mode-toggle button{flex:1;padding:10px 14px;background:transparent;color:var(--text);border:none;font-size:15px}
+    .mode-toggle button.active{background:#1f2937}
+    .card{background:var(--card);border:1px solid #1f2937;border-radius:16px;padding:16px;margin-top:16px}
+    .grid{display:grid;gap:12px}
+    .two{grid-template-columns:1fr 1fr}
+    .three{grid-template-columns:1fr 1fr 1fr}
+    @media (max-width:860px){.two,.three{grid-template-columns:1fr}}
+    .pill{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:6px 10px;background:#0b1220;border:1px solid #1f2937;color:var(--muted);font-size:12px}
+    .kbd{font-weight:600;background:#0b1220;border:1px solid #374151;border-radius:8px;padding:8px 10px;min-width:40px;text-align:center;font-size:18px}
+    .row{display:flex;gap:10px;align-items:center}
+    .grow{flex:1}
+    .muted{color:var(--muted)}
+    .success{color:var(--ok)}
+    .danger{color:var(--err)}
+    .warn{color:var(--warn)}
+    button, .btn{appearance:none;border:none;border-radius:12px;padding:12px 14px;background:#1f2937;color:var(--text);font-size:16px;cursor:pointer}
+    button.primary{background:linear-gradient(160deg,#22d3ee,#818cf8)}
+    button.ok{background:#0e9f6e}
+    button.err{background:#b91c1c}
+    button.warn{background:#b45309}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    input, select{width:100%;padding:14px 12px;border-radius:12px;border:1px solid #374151;background:#0b1220;color:var(--text);font-size:16px}
+    input[type=file]{padding:10px}
+    label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+    .kbdbox{display:flex;gap:8px;justify-content:center;margin-top:12px}
+    .kbdbox .hole{width:48px;height:56px;border-radius:10px;background:#0b1220;border:1px dashed #374151;display:flex;align-items:center;justify-content:center;font-size:24px}
+    .pad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+    .pad button{padding:18px 0;font-size:22px;border-radius:12px;border:1px solid #374151;background:#0b1220}
+    .pad .go{background:linear-gradient(160deg,#22d3ee,#06b6d4);font-weight:700}
+    .pad .del{background:#1f2937}
+    .student-card{display:grid;grid-template-columns:92px 1fr;gap:12px;align-items:center}
+    .student-card img{width:92px;height:92px;border-radius:12px;object-fit:cover;background:#0b1220;border:1px solid #374151}
+    .table{width:100%;border-collapse:collapse;font-size:14px}
+    .table th,.table td{border-bottom:1px solid #253043;padding:10px 8px;text-align:left}
+    .table th{color:#9ca3af;text-transform:uppercase;font-size:12px}
+    .tag{background:#0b1220;border:1px solid #374151;border-radius:999px;padding:4px 8px;font-size:12px}
+    .faded{opacity:.65}
+    .footer{position:fixed;bottom:0;left:0;right:0;background:#0b1220;border-top:1px solid #1f2937;padding:10px 16px;color:#9ca3af;font-size:12px}
+    .hidden{display:none !important}
+  </style>
 </head>
 <body>
-  <header class="app-header">
-    <h1>Control de Accesos</h1>
-    <div class="mode-switch">
-      <button id="btnAlumno" class="mode-btn active" aria-pressed="true">Modo Alumno</button>
-      <button id="btnAdmin" class="mode-btn" aria-pressed="false">Modo Administrador</button>
-    </div>
-  </header>
-
-  <main>
-    <!-- ========== MODO ALUMNO ========== -->
-    <section id="alumnoSection" class="panel">
-      <div class="card">
-        <h2>Ingresar código</h2>
-        <div id="pinDisplay" class="pin-display" aria-live="polite" aria-atomic="true">— — — —</div>
-        <div class="keypad" role="group" aria-label="Teclado numérico">
-          <button class="key">1</button><button class="key">2</button><button class="key">3</button>
-          <button class="key">4</button><button class="key">5</button><button class="key">6</button>
-          <button class="key">7</button><button class="key">8</button><button class="key">9</button>
-          <button class="key action" data-action="borrar">Borrar</button>
-          <button class="key">0</button>
-          <button class="key action" data-action="entrar">Entrar</button>
-        </div>
-        <p class="hint">El código es de 4 dígitos.</p>
-        <div id="alumnoFeedback" class="feedback" aria-live="assertive"></div>
-      </div>
-
-      <div id="alumnoPerfil" class="card hidden">
-        <div class="perfil-header">
-          <img id="perfilFoto" class="perfil-foto" src="assets/default-avatar.png" alt="Foto de perfil" />
-          <div>
-            <h3 id="perfilNombre">Nombre del alumno</h3>
-            <p><strong>Paquete:</strong> <span id="perfilPaquete"></span> &middot; <strong>Clases restantes:</strong> <span id="perfilRestantes"></span></p>
-            <p><strong>Vigencia:</strong> <span id="perfilFechas"></span></p>
-            <p><strong>Último pago:</strong> <span id="perfilUltimoPago"></span></p>
-          </div>
-        </div>
-
-        <div class="perfil-actions">
-          <button id="btnMarcarAsistencia">Marcar asistencia</button>
-          <button id="btnReagendar" class="secondary">Re-agendar (con pago)</button>
-          <button id="btnCerrarSesion" class="danger">Cerrar sesión</button>
-        </div>
-
-        <div id="agendaAlumno" class="subcard hidden">
-          <h4>Agenda del alumno</h4>
-          <form id="formReagendar" class="inline-form">
-            <label>Fecha y hora:
-              <input type="datetime-local" id="reagendarFecha" required />
-            </label>
-            <button type="submit">Guardar</button>
-          </form>
-          <ul id="listaAgenda" class="simple-list"></ul>
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <div class="logo" aria-hidden="true"></div>
+        <div>
+          <h1>Academia NH · Control de Acceso</h1>
+          <div class="muted">Modo: <span id="modeLabel">Alumno</span></div>
         </div>
       </div>
+      <div class="mode-toggle" role="tablist" aria-label="Cambiar modo">
+        <button id="btnAlumno" class="active" aria-selected="true">Alumno</button>
+        <button id="btnAdmin">Administrador</button>
+      </div>
+    </header>
+
+    <!-- MODO ALUMNO -->
+    <section id="secAlumno" class="card">
+      <div class="row">
+        <div class="pill">Acceso por código</div>
+        <div class="grow"></div>
+        <div class="pill">Sin zoom al digitar</div>
+      </div>
+
+      <div class="kbdbox" aria-label="Código del alumno">
+        <div class="hole" id="dig1">•</div>
+        <div class="hole" id="dig2">•</div>
+        <div class="hole" id="dig3">•</div>
+        <div class="hole" id="dig4">•</div>
+      </div>
+
+      <div class="pad" aria-label="Teclado numérico">
+        <button data-k="1">1</button>
+        <button data-k="2">2</button>
+        <button data-k="3">3</button>
+        <button data-k="4">4</button>
+        <button data-k="5">5</button>
+        <button data-k="6">6</button>
+        <button data-k="7">7</button>
+        <button data-k="8">8</button>
+        <button data-k="9">9</button>
+        <button class="del" data-k="del">←</button>
+        <button data-k="0">0</button>
+        <button class="go" data-k="go">Entrar</button>
+      </div>
+
+      <div id="alumnoResultado" class="card hidden"></div>
     </section>
 
-    <!-- ========== MODO ADMIN ========== -->
-    <section id="adminSection" class="panel hidden">
-      <div class="card">
-        <h2>Ingreso de administrador</h2>
-        <form id="formAdminLogin" class="inline-form">
-          <label>Código de administrador:
-            <input type="password" id="adminPin" inputmode="numeric" maxlength="8" autocomplete="one-time-code" required />
-          </label>
-          <button type="submit">Entrar</button>
-        </form>
-        <div id="adminLoginFeedback" class="feedback"></div>
+    <!-- MODO ADMIN -->
+    <section id="secAdmin" class="card hidden">
+      <div id="adminGate" class="">
+        <div class="pill">PIN de administrador</div>
+        <div class="kbdbox" aria-label="PIN administrador">
+          <div class="hole" id="a1">•</div>
+          <div class="hole" id="a2">•</div>
+          <div class="hole" id="a3">•</div>
+          <div class="hole" id="a4">•</div>
+        </div>
+        <div class="pad" aria-label="Teclado numérico administrador">
+          <button data-ak="1">1</button>
+          <button data-ak="2">2</button>
+          <button data-ak="3">3</button>
+          <button data-ak="4">4</button>
+          <button data-ak="5">5</button>
+          <button data-ak="6">6</button>
+          <button data-ak="7">7</button>
+          <button data-ak="8">8</button>
+          <button data-ak="9">9</button>
+          <button class="del" data-ak="del">←</button>
+          <button data-ak="0">0</button>
+          <button class="go" data-ak="go">Entrar</button>
+        </div>
+        <div class="muted" style="margin-top:8px">* PIN por defecto: <span id="defpin">2025</span></div>
       </div>
 
-      <div id="adminPanel" class="card hidden">
-        <div class="admin-grid">
-          <div>
-            <h3>Alumnos</h3>
-            <div class="toolbar">
-              <input type="search" id="searchAlumno" placeholder="Buscar por nombre o código…" />
-              <button id="btnNuevoAlumno">Agregar alumno</button>
-              <button id="btnExportar">Exportar</button>
-              <label class="import-label">
+      <div id="adminPanel" class="hidden">
+        <div class="row">
+          <div class="pill">Panel de administración</div>
+          <div class="grow"></div>
+          <button id="btnSalirAdmin">Salir</button>
+        </div>
+
+        <div class="grid two" style="margin-top:16px">
+          <div class="card">
+            <h3 style="margin-top:0">Agregar alumno</h3>
+            <div class="grid two">
+              <div>
+                <label>Nombre completo</label>
+                <input id="alNombre" placeholder="Ej. Ana Pérez">
+              </div>
+              <div>
+                <label>Código (4 dígitos)</label>
+                <input id="alCodigo" maxlength="4" pattern="\d{4}" inputmode="numeric" placeholder="Ej. 1234">
+              </div>
+            </div>
+
+            <div class="grid two">
+              <div>
+                <label>Paquete</label>
+                <select id="alPaquete"></select>
+              </div>
+              <div>
+                <label>Monto del paquete (MXN)</label>
+                <input id="alMonto" type="number" min="0" step="1" placeholder="Automático según paquete">
+              </div>
+            </div>
+
+            <div class="grid two">
+              <div>
+                <label>Foto de perfil</label>
+                <input id="alFoto" type="file" accept="image/*">
+              </div>
+              <div>
+                <label>Clases totales</label>
+                <input id="alClases" type="number" min="1" step="1" placeholder="Autocompleta por paquete">
+              </div>
+            </div>
+
+            <div class="row" style="margin-top:10px">
+              <button class="primary" id="btnAddAlumno">Guardar alumno</button>
+              <div class="grow"></div>
+              <button id="btnExport">Exportar datos</button>
+              <label class="btn" style="position:relative;overflow:hidden">
                 Importar
-                <input type="file" id="inputImportar" accept="application/json" />
+                <input id="fileImport" type="file" accept="application/json" style="position:absolute;inset:0;opacity:0">
               </label>
             </div>
-            <table class="table" id="tablaAlumnos">
-              <thead>
-                <tr>
-                  <th>Foto</th><th>Nombre</th><th>Código</th><th>Paquete</th><th>Clases</th><th>Vigencia</th><th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
           </div>
 
-          <div>
-            <h3>Configuración</h3>
-            <form id="formConfig" class="stack-form">
-              <fieldset>
-                <legend>Código administrador</legend>
-                <label>Actual:
-                  <input id="cfgAdminPin" type="password" placeholder="••••" />
-                </label>
-              </fieldset>
-              <fieldset>
-                <legend>Precios (MXN)</legend>
-                <div class="grid-2">
-                  <label>Clase suelta
-                    <input id="precio1" type="number" min="0" step="1" />
-                  </label>
-                  <label>Dos clases
-                    <input id="precio2" type="number" min="0" step="1" />
-                  </label>
-                  <label>Cuatro clases
-                    <input id="precio4" type="number" min="0" step="1" />
-                  </label>
-                  <label>Seis clases
-                    <input id="precio6" type="number" min="0" step="1" />
-                  </label>
-                  <label>Ocho clases
-                    <input id="precio8" type="number" min="0" step="1" />
-                  </label>
-                  <label>Mes completo
-                    <input id="precioMes" type="number" min="0" step="1" />
-                  </label>
-                </div>
-              </fieldset>
-              <fieldset>
-                <legend>Voz</legend>
-                <p>La app intenta usar una voz en español del dispositivo. Si no se escucha, activa las voces en Ajustes del sistema.</p>
-                <div class="grid-2">
-                  <label>Volumen
-                    <input type="range" id="voiceVolume" min="0" max="1" step="0.1" />
-                  </label>
-                  <label>Velocidad
-                    <input type="range" id="voiceRate" min="0.6" max="1.4" step="0.1" />
-                  </label>
-                </div>
-                <div class="grid-2">
-                  <label>Voz (español)
-                    <select id="voiceSelect"></select>
-                  </label>
-                </div>
-                <button type="button" id="probarVoz">Probar voz</button>
-              </fieldset>
-              <button type="submit">Guardar configuración</button>
-            </form>
+          <div class="card">
+            <h3 style="margin-top:0">Alumnos</h3>
+            <input id="buscar" placeholder="Buscar por nombre o código…">
+            <div id="listaAlumnos" style="margin-top:10px"></div>
+          </div>
+        </div>
+
+        <div class="grid two" style="margin-top:16px">
+          <div class="card">
+            <h3 style="margin-top:0">Detalles del alumno</h3>
+            <div id="detalleAlumno" class="muted">Selecciona un alumno para ver y editar su perfil.</div>
+          </div>
+
+          <div class="card">
+            <h3 style="margin-top:0">Configuración</h3>
+            <div class="grid two">
+              <div>
+                <label>PIN administrador</label>
+                <input id="cfgPin" maxlength="4" pattern="\d{4}" inputmode="numeric" placeholder="2025">
+              </div>
+              <div class="row" style="margin-top:24px">
+                <button id="btnGuardarPin">Cambiar PIN</button>
+              </div>
+            </div>
+
+            <h4>Paquetes y montos</h4>
+            <div id="cfgPaquetes"></div>
+            <div class="row" style="margin-top:10px">
+              <button id="btnGuardarPaquetes">Guardar paquetes</button>
+              <div class="grow"></div>
+              <button class="err" id="btnReset">Reiniciar app</button>
+            </div>
           </div>
         </div>
       </div>
     </section>
-  </main>
+  </div>
 
-  <!-- MODAL ALUMNO -->
-  <dialog id="modalAlumno">
-    <form method="dialog" id="formAlumno">
-      <h3 id="modalAlumnoTitulo">Nuevo alumno</h3>
-      <div class="stack-form">
-        <label>Nombre completo
-          <input id="alNombre" required />
-        </label>
-        <label>Código (4 dígitos)
-          <input id="alCodigo" required inputmode="numeric" minlength="4" maxlength="4" />
-        </label>
-        <label>Paquete
-          <select id="alPaquete">
-            <option value="1">Clase suelta (1)</option>
-            <option value="2">Dos clases (2)</option>
-            <option value="4">Cuatro clases (4)</option>
-            <option value="6">Seis clases (6)</option>
-            <option value="8">Ocho clases (8)</option>
-            <option value="9">Nueve clases (9)</option>
-            <option value="10">Diez clases (10)</option>
-            <option value="11">Once clases (11)</option>
-            <option value="12">Doce clases (12)</option>
-            <option value="mes">Mes completo</option>
-          </select>
-        </label>
-        <label>Monto (MXN)
-          <input id="alMonto" type="number" min="0" step="1" />
-        </label>
-        <div class="grid-2">
-          <label>Fecha inicio
-            <input id="alInicio" type="date" />
-          </label>
-          <label>Fecha término
-            <input id="alFin" type="date" />
-          </label>
-        </div>
-        <details>
-          <summary>Datos de contacto</summary>
-          <div class="grid-2">
-            <label>Teléfono
-              <input id="alTel" />
-            </label>
-            <label>Emergencia
-              <input id="alTelEmerg" />
-            </label>
-            <label>Fecha de nacimiento
-              <input id="alFNac" type="date" />
-            </label>
-            <label>Edad
-              <input id="alEdad" type="number" min="0" />
-            </label>
-            <label>Dirección
-              <input id="alDir" />
-            </label>
-            <label>Forma de pago
-              <input id="alFormaPago" placeholder="Efectivo/Transferencia/..." />
-            </label>
-          </div>
-        </details>
-        <label>Foto de perfil
-          <input id="alFoto" type="file" accept="image/*" />
-        </label>
-        <details>
-          <summary>Historial de pagos</summary>
-          <div id="alPagos"></div>
-          <button type="button" id="btnAgregarPago">Agregar pago</button>
-        </details>
-      </div>
-      <menu class="dialog-actions">
-        <button value="cancel">Cancelar</button>
-        <button value="confirm" class="primary">Guardar</button>
-      </menu>
-    </form>
-  </dialog>
-
-  <template id="pagoTemplate">
-    <div class="pago-item">
-      <div class="grid-3">
-        <label>Monto (MXN)
-          <input class="pago-monto" type="number" min="0" step="1" required />
-        </label>
-        <label>Método
-          <input class="pago-metodo" placeholder="Efectivo/Transferencia/..." />
-        </label>
-        <label>Fecha
-          <input class="pago-fecha" type="date" />
-        </label>
-      </div>
-      <label>Notas
-        <input class="pago-nota" placeholder="Paquete 4 clases / Inscripción / etc." />
-      </label>
-      <button type="button" class="pago-eliminar danger">Eliminar</button>
-    </div>
-  </template>
+  <div class="footer">
+    Consejos: toca los botones del teclado en pantalla (no aparece teclado del dispositivo, así evitamos el zoom). Voces: se selecciona automáticamente una voz de mujer en español si está disponible.
+  </div>
 
   <script src="app.js"></script>
 </body>
