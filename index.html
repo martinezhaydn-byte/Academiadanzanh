@@ -7,14 +7,14 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <title>Academia NH v2</title>
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <title>Academia NH v3</title>
+  <link rel="stylesheet" href="styles.css?v=4" />
 </head>
 <body>
   <header>
     <div class="brand">
       <img src="icons/icon-192.png" alt="Logo" />
-      <h1 id="brand-title">Academia NH v2</h1>
+      <h1 id="brand-title">Academia NH v3</h1>
     </div>
     <nav id="tabs">
       <button data-tab="kiosk" class="active">Asistencias</button>
@@ -30,7 +30,25 @@
     </nav>
   </header>
 
+  <!-- ADMIN LOGIN OVERLAY -->
+  <div id="admin-overlay" class="overlay" aria-hidden="true">
+    <div class="overlay-card">
+      <h3>PIN de Administrador</h3>
+      <input id="admin-pin-input" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="••••" />
+      <div class="pad">
+        <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+        <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+        <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+        <button data-k="←">←</button><button data-k="0">0</button><button data-k="OK">OK</button>
+      </div>
+      <div class="overlay-actions">
+        <button id="admin-cancel">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <main>
+    <!-- KIOSK / ALUMNO -->
     <section id="kiosk" class="tab active">
       <h2>Marcaje por PIN (Alumno)</h2>
       <div class="pin-box">
@@ -48,6 +66,7 @@
       </div>
     </section>
 
+    <!-- STUDENTS / ADMIN -->
     <section id="students" class="tab">
       <h2>Alumnos</h2>
       <form id="form-student" class="form-grid">
@@ -108,6 +127,7 @@
       </div>
     </section>
 
+    <!-- PAYMENTS / ADMIN -->
     <section id="payments" class="tab">
       <h2>Pagos</h2>
       <form id="form-payment" class="form-inline">
@@ -126,6 +146,7 @@
       </div>
     </section>
 
+    <!-- REPORTS / ADMIN -->
     <section id="reports" class="tab">
       <h2>Reportes</h2>
       <div class="grid">
@@ -134,10 +155,11 @@
       </div>
     </section>
 
+    <!-- CONFIG / ADMIN -->
     <section id="config" class="tab">
       <h2>Configuración</h2>
       <div class="form-grid">
-        <input id="cfg-brand" placeholder="Nombre academia" value="Academia NH v2"/>
+        <input id="cfg-brand" placeholder="Nombre academia" value="Academia NH v3"/>
         <input id="cfg-admin-pin" placeholder="PIN Admin (4 dígitos)" maxlength="4" inputmode="numeric"/>
         <input id="cfg-voice-ok" placeholder='Voz OK' value="Acceso otorgado"/>
         <input id="cfg-voice-deny" placeholder='Voz NO' value="Acceso denegado"/>
@@ -147,12 +169,13 @@
     </section>
   </main>
 
-  <footer><small>PWA localStorage • Compatible iPad • Sin internet para voz.</small></footer>
+  <footer><small>PWA localStorage • Compatible iPad • Voz offline en español.</small></footer>
 
   <script>
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js?v=3'); });
+      window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js?v=4'); });
     }
+    // Panic clear
     (async()=>{
       const params=new URLSearchParams(location.search);
       if(params.get('clear')==='1'){
@@ -160,10 +183,10 @@
           if('caches' in window){ const keys=await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); }
           if('serviceWorker' in navigator){ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); }
         }catch(e){}
-        setTimeout(()=>location.replace(location.pathname+'?v=clean3'),300);
+        setTimeout(()=>location.replace(location.pathname+'?v=clean4'),300);
       }
     })();
   </script>
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

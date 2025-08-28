@@ -1,7 +1,7 @@
 
-const CACHE_NAME = 'academia-nh-v2-cache-v3';
+const CACHE_NAME = 'academia-nh-v3-cache-v4';
 const ASSETS = [
-  './','./index.html','./styles.css?v=3','./app.js?v=3','./manifest.json',
+  './','./index.html','./styles.css?v=4','./app.js?v=4','./manifest.json',
   './icons/icon-192.png','./icons/icon-512.png'
 ];
 self.addEventListener('install', e => {

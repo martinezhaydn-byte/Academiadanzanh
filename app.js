@@ -2,12 +2,12 @@
 const $=(s,r=document)=>r.querySelector(s);
 const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const DB=['students','enrollments','attendance','payments','pins'];
-const CFG_KEY='cfg_v2';
+const CFG_KEY='cfg_v3';
 
 function cfgLoad(){
   const c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
   return {
-    brand: c.brand || 'Academia NH v2',
+    brand: c.brand || 'Academia NH v3',
     admin_pin: c.admin_pin || '1234',
     voice_ok: c.voice_ok || 'Acceso otorgado',
     voice_deny: c.voice_deny || 'Acceso denegado'
@@ -67,15 +67,32 @@ async function fileToDataURLResized(file, maxSize=360, quality=0.85){
   });
 }
 
+// --- Admin overlay login (robust on iPad) ---
+const overlay = $('#admin-overlay');
+const pinInput = $('#admin-pin-input');
+const pad = $('.pad', overlay);
 $('#mode-switch').addEventListener('change', ()=>{
   const target = $('#mode-switch').value;
   if(target==='admin'){
-    const pin = prompt('PIN Admin (4 dígitos):');
-    if(pin === cfg.admin_pin){ mode='admin'; }
-    else { alert('PIN incorrecto'); $('#mode-switch').value='alumno'; mode='alumno'; }
-  } else { mode='alumno'; }
-  applyMode();
+    overlay.setAttribute('aria-hidden','false'); pinInput.value=''; pinInput.focus();
+  } else { mode='alumno'; applyMode(); }
 });
+$('#admin-cancel').addEventListener('click', ()=>{
+  overlay.setAttribute('aria-hidden','true'); $('#mode-switch').value='alumno'; mode='alumno'; applyMode();
+});
+pad.addEventListener('click', (e)=>{
+  const b=e.target.closest('button'); if(!b) return;
+  const k=b.dataset.k;
+  if(k==='OK'){
+    const p=pinInput.value.trim();
+    if(/^\d{4}$/.test(p) && p===cfg.admin_pin){ mode='admin'; overlay.setAttribute('aria-hidden','true'); applyMode(); }
+    else { alert('PIN incorrecto'); }
+    return;
+  }
+  if(k==='←'){ pinInput.value = pinInput.value.slice(0,-1); return; }
+  if(/\d/.test(k)){ if(pinInput.value.length<4) pinInput.value += k; return; }
+});
+
 function applyMode(){
   $$('#tabs [data-admin]').forEach(el=>{ el.style.display = (mode==='admin') ? '' : 'none'; });
   if(mode==='alumno'){ switchTo('kiosk'); }
@@ -98,6 +115,7 @@ function fillClassSelect(sel){
 }
 fillClassSelect($('#student-classes'));
 
+// Student add
 let pendingPhotoData='';
 $('#student-photo').addEventListener('change', async e=>{
   const f=e.target.files[0]; if(!f) return;
@@ -203,7 +221,7 @@ function openProfile(sid){
     const newEnr = { enrollment_id:uid('enr'), student_id:sid, classes_total:enr.classes_total, remaining_classes:enr.classes_total, end_date:d.toISOString().slice(0,10), status:'activo', amount_mxn:enr.amount_mxn||0 };
     enr.status='vencido';
     db.enrollments.push(newEnr);
-    db.payments.push({ payment_id:uid('pay'), enrollment_id:newEnr.enrollment_id, student_id:sid, date:todayISO(), amount_mxn:newEnr.amount_mxn||0, method:'', status:'pendiente', reference:'reagendado v2' });
+    db.payments.push({ payment_id:uid('pay'), enrollment_id:newEnr.enrollment_id, student_id:sid, date:todayISO(), amount_mxn:newEnr.amount_mxn||0, method:'', status:'pendiente', reference:'reagendado v3' });
     save(db); renderStudents(); openProfile(sid);
     alert('Reagendado. Se creó un nuevo paquete con pago PENDIENTE.');
   };
@@ -225,6 +243,7 @@ function openProfile(sid){
   };
 }
 
+// Payments section
 function renderPaymentSelectors(){
   const sel=$('#form-payment select[name="student_id"]');
   sel.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('');
@@ -256,6 +275,7 @@ function renderPayments(){
   };
 }
 
+// Attendance (Alumno kiosk)
 function renderAttendance(){
   const tb=$('#table-attendance tbody'); tb.innerHTML='';
   const rows = db.attendance.filter(a=>a.date===todayISO() && (!currentKioskStudentId || a.student_id===currentKioskStudentId));
@@ -303,6 +323,7 @@ $('#form-pin').addEventListener('submit', e=>{
   showKioskProfile(sid);
 }
 
+// Reports
 function renderReports(){
   const ym = todayISO().slice(0,7);
   const att = db.attendance.filter(a=>a.date.startsWith(ym)).length;
@@ -311,10 +332,11 @@ function renderReports(){
   $('#r-income-month').textContent=`$ ${income.toFixed(2)} MXN`;
 }
 
+// Config
 $('#cfg-save').addEventListener('click', ()=>{
   const pin=$('#cfg-admin-pin').value.trim()||cfg.admin_pin;
   if(!/^\d{4}$/.test(pin)){ alert('PIN Admin inválido'); return; }
-  cfg={ brand: $('#cfg-brand').value || 'Academia NH v2', admin_pin: pin, voice_ok: $('#cfg-voice-ok').value || 'Acceso otorgado', voice_deny: $('#cfg-voice-deny').value || 'Acceso denegado' };
+  cfg={ brand: $('#cfg-brand').value || 'Academia NH v3', admin_pin: pin, voice_ok: $('#cfg-voice-ok').value || 'Acceso otorgado', voice_deny: $('#cfg-voice-deny').value || 'Acceso denegado' };
   cfgSave(cfg); document.title=cfg.brand; $('#brand-title').textContent=cfg.brand;
   alert('Configuración guardada');
 });
@@ -324,7 +346,7 @@ $('#cfg-clear').addEventListener('click', async ()=>{
     if('serviceWorker' in navigator){ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); }
   }catch(e){}
   alert('Caché borrada. Se recargará.');
-  location.replace(location.pathname+'?v=clean3');
+  location.replace(location.pathname+'?v=clean4');
 });
 
 function renderAll(){

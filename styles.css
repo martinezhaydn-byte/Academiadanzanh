@@ -33,3 +33,12 @@ th,td{padding:10px;border-bottom:1px solid #f1f1f1;text-align:left}
 .accent{background:var(--accent);color:#fff;border-color:var(--accent)}
 .muted{color:#6b7280}
 .tbl-photo{width:42px;height:42px;object-fit:cover;border-radius:8px;border:1px solid #e5e7eb}
+/* Overlay */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.26);display:none;align-items:center;justify-content:center;z-index:20}
+.overlay[aria-hidden="false"]{display:flex}
+.overlay-card{background:#fff;border-radius:14px;border:1px solid #e5e7eb;padding:16px;min-width:300px;max-width:90vw}
+.overlay-card h3{margin:.2rem 0 1rem;color:var(--accent)}
+.overlay-card input{width:100%;font-size:1.2rem;text-align:center;letter-spacing:4px}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.pad button{padding:12px;font-size:1.1rem}
+.overlay-actions{display:flex;justify-content:flex-end;margin-top:10px}
