@@ -1,3 +1,12 @@
+function speak(text, type='') {
+  if (!('speechSynthesis' in window)) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'es-MX';
+  if (type==='error') u.pitch = 0.8;
+  if (type==='success') u.pitch = 1.2;
+  window.speechSynthesis.speak(u);
+}
+
 // Minimal IndexedDB wrapper
 const DB_NAME = 'adan-nh-db';
 const DB_VERSION = 1;
@@ -186,7 +195,7 @@ document.querySelectorAll('[data-key]').forEach(btn=>{
       if (pin.length !== 4) return setAlumnoMsg('Completa los 4 dígitos.', 'warn');
       const stu = await getStudentByPin(pin);
       if (!stu) {
-        setAlumnoMsg('Código no encontrado. Pide soporte en recepción.', 'error');
+        setAlumnoMsg('Código no encontrado. Pide soporte en recepción.', 'error'); await speak('Código no encontrado');
         pinInputs.forEach(i=>i.value='');
         return;
       }
@@ -194,14 +203,15 @@ document.querySelectorAll('[data-key]').forEach(btn=>{
       const today = todayISO();
       const inRange = (!stu.startDate || stu.startDate <= today) && (!stu.endDate || stu.endDate >= today);
       if (!inRange) {
-        setAlumnoMsg('Tu paquete no está vigente. Por favor reacude a recepción.', 'warn');
+        setAlumnoMsg('Tu paquete no está vigente. Por favor reacude a recepción.', 'warn'); await speak('Paquete no vigente. Favor de pasar a recepción');
         pinInputs.forEach(i=>i.value='');
         return;
       }
       // Decrementar clases si aplica
       if (stu.pkgType !== 'mes') {
         if (!stu.remaining || stu.remaining <= 0) {
-          setAlumnoMsg('Ya no tienes clases restantes. Reagendar en recepción.', 'warn');
+          setAlumnoMsg('Ya no tienes clases restantes. Reagendar en recepción.', 'warn'); await speak('Acceso denegado. Ya no tienes clases disponibles. Pasa a recepción para reagendar');
+          speak('Acceso denegado, no te quedan clases', 'error');
           pinInputs.forEach(i=>i.value='');
           return;
         }
@@ -212,7 +222,7 @@ document.querySelectorAll('[data-key]').forEach(btn=>{
         await addOrUpdateStudent(stu);
       }
       await logAttendance(stu.id);
-      setAlumnoMsg(`¡Acceso concedido, ${stu.name.split(' ')[0]}!`, 'success');
+      setAlumnoMsg(`¡Acceso concedido, ${stu.name.split(' ')[0]}!`, 'success'); await speak(`Acceso concedido, ${stu.name.split(' ')[0]}`);
       // Ocultar datos y volver a inicio
       setTimeout(()=>{
         pinInputs.forEach(i=>i.value='');
