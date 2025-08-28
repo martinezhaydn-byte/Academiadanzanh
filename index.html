@@ -8,7 +8,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>Academia NH</title>
-  <link rel="stylesheet" href="styles.css?v=11" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header>
@@ -30,23 +30,12 @@
       <button id="btn-import" data-admin>Importar JSON</button>
       <input type="file" id="file-import" accept="application/json" style="display:none" />
       <span class="spacer"></span>
-      <button id="btn-admin-login" class="outline">Entrar Admin</button>
-      <button id="btn-admin-logout" class="danger-outline" style="display:none">Salir Admin</button>
+      <select id="mode-switch" title="Modo de visualización">
+        <option value="alumno">Modo Alumno</option>
+        <option value="admin">Modo Admin</option>
+      </select>
     </nav>
   </header>
-
-  <!-- Modal PIN Admin -->
-  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" style="display:none">
-    <div class="modal-content">
-      <h3 id="modal-title">PIN de Administrador</h3>
-      <form id="form-admin-pin" class="form-inline">
-        <input name="pin" inputmode="numeric" maxlength="4" pattern="\d{4}" placeholder="••••" required autofocus />
-        <button>Entrar</button>
-        <button type="button" id="modal-close" class="danger-outline">Cancelar</button>
-      </form>
-      <p class="muted">El PIN por defecto es <strong>1234</strong> (puedes cambiarlo en Config).</p>
-    </div>
-  </div>
 
   <main>
     <section id="dashboard" class="tab">
@@ -66,7 +55,9 @@
         <input name="phone" placeholder="Teléfono" />
         <input name="emergency_contact_name" placeholder="Contacto de emergencia" />
         <input name="emergency_contact_phone" placeholder="Tel. emergencia" />
-        <label class="file-uploader"><span>Foto (cámara/galería)</span><input id="student-photo" type="file" accept="image/*" capture="environment" /></label>
+        <input name="address" placeholder="Dirección" />
+        <input name="notes" placeholder="Notas" />
+        <label class="file-uploader"><span>Foto (opcional)</span><input id="student-photo" type="file" accept="image/*" /></label>
         <button>+ Agregar alumno</button>
       </form>
       <div class="table-wrap">
@@ -95,11 +86,10 @@
           <option value="pendiente">Pendiente</option>
         </select>
         <input name="amount_mxn" type="number" placeholder="Monto MXN" min="0" step="0.01" />
-        <label class="inline"><input type="checkbox" id="auto-pending" checked /> Crear pago pendiente (automático)</label>
         <button>Asignar paquete</button>
       </form>
       <div class="form-inline" id="box-delete-active">
-        <button type="button" id="btn-delete-active" class="danger-outline">
+        <button type="button" id="btn-delete-active" style="background:#fff;border:1px solid #ef4444;color:#b91c1c">
           Eliminar paquete ACTIVO del alumno seleccionado
         </button>
       </div>
@@ -114,12 +104,17 @@
     <section id="attendance" class="tab active">
       <h2>Asistencias</h2>
       <div class="flex">
+        <form id="form-attendance" class="form-inline">
+          <select name="student_id" required></select>
+          <input name="class_name_or_group" placeholder="Clase/Grupo (opcional)" />
+          <button>Marcar asistencia</button>
+        </form>
         <div class="pin-box" id="kiosk-box">
           <h3>Marcar por PIN (4 dígitos)</h3>
           <form id="form-pin" class="form-inline">
             <input name="pin" inputmode="numeric" maxlength="4" pattern="\d{4}" placeholder="••••" required />
+            <input name="class_name_or_group" id="pin-class" placeholder="Clase/Grupo (opcional)" />
             <button>Marcar</button>
-            <button type="button" id="btn-clear" class="danger-outline">Limpiar</button>
           </form>
           <div id="kiosk-profile" class="kiosk-profile" aria-live="polite"></div>
         </div>
@@ -136,7 +131,7 @@
       <h2>Pagos</h2>
       <div class="table-wrap">
         <table id="table-payments">
-          <thead><tr><th>Fecha</th><th>Alumno</th><th>Método</th><th>Monto</th><th>Estado</th><th>Ref</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Alumno</th><th>Método</th><th>Monto</th><th>Estado</th><th>Ref</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -200,12 +195,9 @@
         <input id="cfg-default-class" placeholder="Clase/Grupo por defecto (kiosco)" value="General"/>
         <input id="cfg-voice-ok" placeholder='Texto voz "acceso otorgado"' value="Acceso otorgado"/>
         <input id="cfg-voice-deny" placeholder='Texto voz "acceso denegado"' value="Acceso denegado"/>
-        <div class="form-inline">
-          <button id="cfg-save">Guardar</button>
-          <button id="cfg-clear-cache" class="danger-outline">Borrar caché</button>
-        </div>
+        <button id="cfg-save">Guardar</button>
       </div>
-      <p class="muted">En <strong>Modo Alumno</strong> se usa solo la pestaña <em>Asistencias</em>. En <strong>Modo Admin</strong> se oculta.</p>
+      <p class="muted">En Modo Alumno se oculta todo excepto el PIN. La clase/grupo se toma de “Clase/Grupo por defecto”.</p>
     </section>
 
   </main>
@@ -214,26 +206,10 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=11');
+        navigator.serviceWorker.register('./sw.js');
       });
     }
-    (async () => {
-      const params = new URLSearchParams(location.search);
-      if (params.get('clear') === '1') {
-        try {
-          if ('caches' in window) {
-            const keys = await caches.keys();
-            await Promise.all(keys.map(k => caches.delete(k)));
-          }
-          if ('serviceWorker' in navigator) {
-            const regs = await navigator.serviceWorker.getRegistrations();
-            await Promise.all(regs.map(r => r.unregister()));
-          }
-        } catch (e) {}
-        setTimeout(() => location.replace(location.pathname + '?v=clean11'), 300);
-      }
-    })();
   </script>
-  <script src="app.js?v=11"></script>
+  <script src="app.js"></script>
 </body>
 </html>
