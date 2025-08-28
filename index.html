@@ -7,14 +7,14 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <title>Academia de Danza</title>
+  <title>Academia NH</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header>
     <div class="brand">
       <img src="icons/icon-192.png" alt="Logo" />
-      <h1 id="brand-title">Academia de Danza</h1>
+      <h1 id="brand-title">Academia NH</h1>
     </div>
     <nav id="tabs">
       <button data-tab="attendance" class="active">Asistencias</button>
@@ -36,171 +36,11 @@
       </select>
     </nav>
   </header>
-
   <main>
-    <section id="dashboard" class="tab">
-      <div class="grid">
-        <div class="card"><h3>Asistencias hoy</h3><p><span id="attendances-today">0</span></p></div>
-        <div class="card"><h3>Pagos pendientes</h3><p><span id="payments-due">0</span></p></div>
-        <div class="card"><h3>Paquetes por vencer (7 días)</h3><p><span id="expiring-packages">0</span></p></div>
-        <div class="card"><h3>Eventos próximos (7 días)</h3><p><span id="upcoming-events">0</span></p></div>
-      </div>
-    </section>
-
-    <section id="students" class="tab">
-      <h2>Alumnos</h2>
-      <form id="form-student" class="form-grid">
-        <input name="full_name" placeholder="Nombre completo" required />
-        <input name="age" type="number" placeholder="Edad" min="0" />
-        <input name="phone" placeholder="Teléfono" />
-        <input name="emergency_contact_name" placeholder="Contacto de emergencia" />
-        <input name="emergency_contact_phone" placeholder="Tel. emergencia" />
-        <input name="address" placeholder="Dirección" />
-        <input name="notes" placeholder="Notas" />
-        <button>+ Agregar alumno</button>
-      </form>
-      <div class="table-wrap">
-        <table id="table-students">
-          <thead><tr><th>Nombre</th><th>Edad</th><th>Teléfono</th><th>Emergencia</th><th class="only-admin">PIN</th><th>Acciones</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="enrollments" class="tab">
-      <h2>Vender/Asignar paquete</h2>
-      <form id="form-enrollment" class="form-grid">
-        <select name="student_id" required></select>
-        <select name="package_id" required></select>
-        <input name="start_date" type="date" required />
-        <input name="end_date" type="date" required />
-        <select name="payment_method">
-          <option value="">(método de pago)</option>
-          <option value="efectivo">Efectivo</option>
-          <option value="transferencia">Transferencia</option>
-        </select>
-        <select name="payment_status">
-          <option value="">(estado)</option>
-          <option value="pagado">Pagado</option>
-          <option value="pendiente">Pendiente</option>
-        </select>
-        <input name="amount_mxn" type="number" placeholder="Monto MXN" min="0" step="0.01" />
-        <button>Asignar paquete</button>
-      </form>
-      <div class="form-inline" id="box-delete-active">
-        <button type="button" id="btn-delete-active" style="background:#fff;border:1px solid #ef4444;color:#b91c1c">
-          Eliminar paquete ACTIVO del alumno seleccionado
-        </button>
-      </div>
-      <div class="table-wrap">
-        <table id="table-enrollments">
-          <thead><tr><th>Alumno</th><th>Paquete</th><th>Inicio</th><th>Fin</th><th>Restantes</th><th>Estado</th><th>Acciones</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="attendance" class="tab active">
-      <h2>Asistencias</h2>
-      <div class="flex">
-        <form id="form-attendance" class="form-inline">
-          <select name="student_id" required></select>
-          <input name="class_name_or_group" placeholder="Clase/Grupo (opcional)" />
-          <button>Marcar asistencia</button>
-        </form>
-        <div class="pin-box" id="kiosk-box">
-          <h3>Marcar por PIN (4 dígitos)</h3>
-          <form id="form-pin" class="form-inline">
-            <input name="pin" inputmode="numeric" maxlength="4" pattern="\d{4}" placeholder="••••" required />
-            <input name="class_name_or_group" id="pin-class" placeholder="Clase/Grupo (opcional)" />
-            <button>Marcar</button>
-          </form>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table id="table-attendance">
-          <thead id="attendance-head"></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="payments" class="tab">
-      <h2>Pagos</h2>
-      <div class="table-wrap">
-        <table id="table-payments">
-          <thead><tr><th>Fecha</th><th>Alumno</th><th>Método</th><th>Monto</th><th>Estado</th><th>Ref</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="events" class="tab">
-      <h2>Calendario de eventos</h2>
-      <form id="form-event" class="form-grid">
-        <input name="title" placeholder="Título" required />
-        <input name="date" type="date" required />
-        <input name="start_time" type="time" />
-        <input name="end_time" type="time" />
-        <input name="location" placeholder="Lugar" />
-        <select name="type"><option value="">(tipo)</option><option>clausura</option><option>taller</option><option>ensayo</option><option>otro</option></select>
-        <input name="notes" placeholder="Notas" />
-        <button>+ Agregar evento</button>
-      </form>
-      <div class="table-wrap">
-        <table id="table-events">
-          <thead><tr><th>Fecha</th><th>Título</th><th>Tipo</th><th>Lugar</th><th>Acciones</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section id="reports" class="tab">
-      <h2>Reportes</h2>
-      <div class="grid">
-        <div class="card"><h3>Asistencia por mes</h3><p id="r-attendance-month"></p></div>
-        <div class="card"><h3>Ingresos por mes</h3><p id="r-income-month"></p></div>
-        <div class="card"><h3>Paquetes más vendidos</h3><ul id="r-top-packages"></ul></div>
-      </div>
-    </section>
-
-    <section id="panel" class="tab">
-      <h2>Panel del Alumno</h2>
-      <div id="panel-login">
-        <p>Accede con tu PIN de 4 dígitos</p>
-        <form id="form-panel-login" class="form-inline">
-          <input name="pin" inputmode="numeric" maxlength="4" pattern="\d{4}" placeholder="••••" required />
-          <button>Entrar</button>
-        </form>
-      </div>
-      <div id="panel-view" style="display:none">
-        <h3 id="pv-name"></h3>
-        <p><strong>Clases restantes:</strong> <span id="pv-remaining"></span></p>
-        <p><strong>Vence:</strong> <span id="pv-ends"></span></p>
-        <h4>Próximos eventos</h4>
-        <ul id="pv-events"></ul>
-        <button id="pv-logout">Salir</button>
-      </div>
-    </section>
-
-    <section id="config" class="tab">
-      <h2>Configuraciones (Admin)</h2>
-      <div class="form-grid">
-        <input id="cfg-brand-name" placeholder="Nombre de la academia" />
-        <input id="cfg-primary" placeholder="Color primario (hex)" value="#EFB8C8"/>
-        <input id="cfg-accent" placeholder="Color acento (hex)" value="#111827"/>
-        <input id="cfg-admin-pin" placeholder="PIN de Admin (4 dígitos)" maxlength="4" inputmode="numeric"/>
-        <input id="cfg-default-class" placeholder="Clase/Grupo por defecto (kiosco)" value="General"/>
-        <input id="cfg-voice-ok" placeholder='Texto voz "acceso otorgado"' value="Acceso otorgado"/>
-        <input id="cfg-voice-deny" placeholder='Texto voz "acceso denegado"' value="Acceso denegado"/>
-        <button id="cfg-save">Guardar</button>
-      </div>
-      <p class="muted">En Modo Alumno se oculta todo excepto el PIN. La clase/grupo se toma de “Clase/Grupo por defecto”.</p>
-    </section>
-
+    <h2>Bienvenido a Academia NH</h2>
+    <p>Tu app ya está lista con el logotipo y nombre configurados.</p>
   </main>
-
-  <footer><small>PWA localStorage. Agrega a pantalla de inicio para modo app.</small></footer>
+  <footer><small>PWA con GitHub Pages</small></footer>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
@@ -208,6 +48,5 @@
       });
     }
   </script>
-  <script src="app.js"></script>
 </body>
 </html>
