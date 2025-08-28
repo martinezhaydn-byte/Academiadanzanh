@@ -70,24 +70,34 @@ input[type="text"], input[type="month"], input[type="number"], input[type="date"
 
 table{width:100%;border-collapse:collapse;margin-top:8px}
 th, td{border-bottom:1px solid #2b2b55;padding:8px;text-align:left}
+td .btns{display:flex;gap:6px;flex-wrap:wrap}
+.btn-mini{padding:6px 8px;border-radius:8px;border:1px solid #34346d;background:#202048;color:var(--text);cursor:pointer}
+.btn-mini.danger{background:#3b1f1f;border-color:#6b2f2f;color:#ffdcdc}
 
-#quickWrap{margin:8px 0 4px}
-.quick{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:6px}
-.qgroup{border:1px solid #2b2b55;border-radius:12px;padding:8px;background:#121236}
-.qgroup h5{margin:0 0 6px;font-size:13px;opacity:0.8}
-.qitem{display:flex;align-items:center;gap:8px;padding:6px;border-radius:10px;border:1px solid #2c2c58;background:#0f0f28}
-.qitem img{width:32px;height:32px;border-radius:8px;object-fit:cover;border:1px solid #34346d}
-.qitem .name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.qitem button{padding:6px 8px;border-radius:8px;border:1px solid #34346d;background:#202048;color:var(--text)}
+#tablaAlumnosWrap{
+  max-height: 50vh;
+  overflow-y: auto;
+  border: 1px solid #2b2b55;
+  border-radius: 10px;
+  background:#101030;
+  padding: 4px 4px 0;
+}
 
-#historial .hist-item{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dotted #2b2b55}
-#historial .hist-item .tag{padding:2px 6px;border-radius:8px;border:1px solid #333;color:#eee;background:#0f0f28;font-size:13px}
-
-.pg-box{margin-top:10px;padding:12px;border-radius:10px;background:#11112a;border:1px solid #2b2b55}
-.pg-box .line{display:flex;gap:8px;justify-content:space-between;border-bottom:1px dashed #2b2b55;padding:6px 0}
-.pg-box .line:last-child{border-bottom:none}
-.balance-pos{color:var(--ok)}
-.balance-neg{color:var(--danger)}
+.dock{
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  max-height: 42vh;
+  background: #151535;
+  border-top: 2px solid #2b2b55;
+  box-shadow: 0 -6px 30px rgba(0,0,0,.35);
+  padding: 8px 12px;
+  z-index: 50;
+}
+.dock-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.dock-body{overflow-y:auto;max-height: calc(42vh - 36px);}
+.dock .perfil{margin-bottom:6px}
+.dock .hist-item{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dotted #2b2b55}
+.dock .hist-item .tag{padding:2px 6px;border-radius:8px;border:1px solid #333;color:#eee;background:#0f0f28;font-size:13px}
 
 .helper{color:var(--muted);font-size:14px;margin-top:8px}
 .foot{opacity:0.6;text-align:center;margin:24px 0}

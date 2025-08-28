@@ -102,7 +102,7 @@
               <button class="danger" type="button" id="btnEliminarAlumno">Eliminar</button>
             </div>
           </form>
-          <p class="helper">Sugerencia: después de **Guardar**, el formulario se limpia automáticamente para añadir otro alumno sin reemplazar a los existentes.</p>
+          <p class="helper">Después de Guardar, el formulario se limpia para agregar otro sin reemplazar a los existentes.</p>
         </section>
 
         <section id="tab-agendar" class="tab">
@@ -145,20 +145,14 @@
         <section id="tab-listado" class="tab">
           <h3>Listado</h3>
 
-          <div id="quickWrap">
-            <h4>Acceso rápido por Perfil</h4>
-            <div id="quickList" class="quick"></div>
+          <div id="tablaAlumnosWrap">
+            <table id="tablaAlumnos">
+              <thead><tr><th>Nombre</th><th>PIN</th><th>Restan</th><th>Vence</th><th>Acciones</th></tr></thead>
+              <tbody></tbody>
+            </table>
           </div>
 
-          <table id="tablaAlumnos">
-            <thead><tr><th>Nombre</th><th>PIN</th><th>Restan</th><th>Vence</th><th>Acciones</th></tr></thead>
-            <tbody></tbody>
-          </table>
-          <div class="actions">
-            <button id="btnExportarMes" class="primary">Exportar historial mensual (PDF)</button>
-            <label>Mes <input type="month" id="expMes"></label>
-          </div>
-          <div id="historial" class="history hidden"></div>
+          <!-- Panel de perfil fijo al fondo -->
         </section>
 
         <section id="tab-pagos" class="tab">
@@ -207,7 +201,17 @@
     </section>
   </main>
 
-  <footer class="foot"><small>v7.0 — PWA offline • © Academia de Danza NH</small></footer>
+  <div id="perfilDock" class="dock hidden">
+    <div class="dock-header">
+      <strong id="dockTitle">Perfil</strong>
+      <div class="dock-actions">
+        <button id="dockClose">Cerrar</button>
+      </div>
+    </div>
+    <div id="dockBody" class="dock-body"></div>
+  </div>
+
+  <footer class="foot"><small>v9.0 — PWA offline • © Academia de Danza NH</small></footer>
   <audio id="beep" src="assets/beep.wav" preload="auto"></audio>
   <script src="app.js"></script>
 </body>
