@@ -1,6 +1,8 @@
-// Academia NH Access App
-// Local-first PWA with Student/Admin modes, class scheduling, and TTS.
-// Storage: localStorage (simple, enough for MVP).
+
+// Academia NH Access App — v3
+// + Aviso cuando queda 1 clase
+// + Exportar historial mensual (ventana imprimible -> Guardar como PDF)
+// + Visor de pagos por mes (registrar pagos, totales y saldos)
 
 const $ = (sel, parent=document)=>parent.querySelector(sel);
 const $$ = (sel, parent=document)=>Array.from(parent.querySelectorAll(sel));
@@ -12,8 +14,7 @@ const state = {
   autoClearTimer: null,
   selectedMonth: null,
   selectedDays: new Set(),
-  voices: [],
-  ttsVoiceName: null
+  voices: []
 };
 
 // ---------- PWA Install ----------
@@ -25,106 +26,81 @@ window.addEventListener('beforeinstallprompt', (e) => {
   btn.hidden = false;
   btn.onclick = async () => {
     btn.hidden = true;
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      deferredPrompt = null;
-    }
+    if (deferredPrompt) { deferredPrompt.prompt(); deferredPrompt = null; }
   };
 });
 
-// ---------- Utilities ----------
-function todayISO(){
-  const d = new Date();
-  d.setHours(0,0,0,0);
-  return d.toISOString().slice(0,10);
+// ---------- Utils ----------
+function todayISO(){ const d=new Date(); d.setHours(0,0,0,0); return d.toISOString().slice(0,10); }
+function ymISO(date){ const d=(date instanceof Date)?date:new Date(date); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+function monthRange(ym){ const [y,m]=ym.split('-').map(Number); return {start:new Date(y,m-1,1), end:new Date(y,m,0)}; }
+function dateToISO(d){ const dd=new Date(d); dd.setHours(0,0,0,0); return dd.toISOString().slice(0,10); }
+function clamp(n,min,max){return Math.max(min,Math.min(max,n));}
+function speak(text){
+  try{
+    if ('speechSynthesis' in window){
+      const u = new SpeechSynthesisUtterance(text);
+      const voices = speechSynthesis.getVoices();
+      const esmx = voices.find(v=>/es-MX/i.test(v.lang));
+      u.voice = esmx || voices.find(v=>/^es[-_]/i.test(v.lang)) || voices[0];
+      u.lang = (u.voice && u.voice.lang) || 'es-MX';
+      u.rate = 0.95;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+      return;
+    }
+  }catch(e){}
+  const beep = $('#beep'); if (beep){ beep.currentTime=0; beep.play(); }
 }
-function ymISO(date){
-  // returns YYYY-MM for given Date or string
-  const d = (date instanceof Date) ? date : new Date(date);
-  const y = d.getFullYear();
-  const m = String(d.getMonth()+1).padStart(2,'0');
-  return `${y}-${m}`;
+function banner(msg, ms=4000){
+  const el = $('#banner');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(()=> el.classList.add('hidden'), ms);
 }
-function monthRange(ym){
-  const [y,m] = ym.split('-').map(Number);
-  const start = new Date(y, m-1, 1);
-  const end = new Date(y, m, 0); // last day
-  return {start, end};
-}
-function dateToISO(d){
-  const dd = new Date(d);
-  dd.setHours(0,0,0,0);
-  return dd.toISOString().slice(0,10);
-}
-function fmtDate(d){
-  const date = new Date(d);
-  return date.toLocaleDateString('es-MX', {weekday:'short', day:'2-digit', month:'short'});
-}
-function clamp(n, min, max){return Math.max(min, Math.min(max, n));}
-function sleep(ms){return new Promise(res=>setTimeout(res,ms));}
 
-// ---------- Storage (localStorage) ----------
+// ---------- Storage ----------
 const DB = {
-  getStudents(){
-    try { return JSON.parse(localStorage.getItem('students')||'{}'); } catch{ return {}; }
-  },
-  setStudents(obj){
-    localStorage.setItem('students', JSON.stringify(obj));
-  },
-  upsertStudent(stu){
-    const students = DB.getStudents();
-    students[stu.pin] = stu;
-    DB.setStudents(students);
-  },
-  deleteStudent(pin){
-    const students = DB.getStudents();
-    delete students[pin];
-    DB.setStudents(students);
-  },
-  getSettings(){
-    try { return JSON.parse(localStorage.getItem('settings')||'{}'); } catch{ return {}; }
-  },
+  getStudents(){ try{return JSON.parse(localStorage.getItem('students')||'{}')}catch{ return {}; } },
+  setStudents(o){ localStorage.setItem('students', JSON.stringify(o)); },
+  deleteStudent(pin){ const s=DB.getStudents(); delete s[pin]; DB.setStudents(s); },
+  getSettings(){ try{return JSON.parse(localStorage.getItem('settings')||'{}')}catch{ return {}; } },
   setSettings(s){ localStorage.setItem('settings', JSON.stringify(s)); },
   getAdminPin(){ return localStorage.getItem('adminPin') || '1234'; },
   setAdminPin(pin){ localStorage.setItem('adminPin', pin); }
 };
-
 function ensureDefaults(){
   const s = DB.getSettings();
-  if (!s.lang) s.lang = 'es-MX';
+  if (!s.prices){ s.prices={}; for(let i=1;i<=12;i++) s.prices[i]=0; }
   DB.setSettings(s);
   if (!localStorage.getItem('adminPin')) DB.setAdminPin('1234');
 }
 
-// ---------- Sweep: expire past scheduled days that weren't used ----------
+// ---------- Scheduling helpers ----------
 function sweepExpired(){
   const students = DB.getStudents();
   const today = todayISO();
-  let changed = false;
+  let changed=false;
   for (const pin of Object.keys(students)){
     const stu = students[pin];
     stu.history = stu.history || [];
-    stu.schedules = stu.schedules || {}; // { 'YYYY-MM': { dates:[{date, used:boolean}], createdAt } }
-    // remove/mark past unused days
+    stu.schedules = stu.schedules || {};
     for (const ym of Object.keys(stu.schedules)){
-      const items = stu.schedules[ym].dates || [];
-      for (const it of items){
+      for (const it of (stu.schedules[ym].dates||[])){
         if (it.date < today && !it.used && !it.expired){
           it.expired = true;
-          stu.history.unshift({ts: Date.now(), type:'expiró', date: it.date, note:'No asistió en su día'});
-          changed = true;
+          stu.history.unshift({id: crypto.randomUUID(), ts: Date.now(), type:'expiró', date: it.date, note:'No asistió'});
+          changed=true;
         }
       }
     }
-    students[pin] = stu;
+    students[pin]=stu;
   }
   if (changed) DB.setStudents(students);
 }
-
-// ---------- Remaining classes (today or future, not used) ----------
 function remainingClasses(stu){
-  const t = todayISO();
-  let n = 0;
+  const t=todayISO(); let n=0;
   if (!stu.schedules) return 0;
   for (const ym of Object.keys(stu.schedules)){
     for (const it of (stu.schedules[ym].dates||[])){
@@ -133,126 +109,23 @@ function remainingClasses(stu){
   }
   return n;
 }
-
-// ---------- Monthly end (for notification calc): end of selected month(s) ----------
 function monthEndForStudent(stu){
-  // Return the last day (YYYY-MM-DD) of the most recent active schedule month (>= today)
-  const t = todayISO();
+  const t=todayISO();
   if (!stu.schedules) return null;
   const months = Object.keys(stu.schedules).sort().reverse();
   for (const ym of months){
     const {end} = monthRange(ym);
     const endIso = dateToISO(end);
-    // If month is current or in future
-    const mmStart = dateToISO(monthRange(ym).start);
-    if (endIso >= t || (mmStart <= t && endIso >= t)) return endIso;
+    const startIso = dateToISO(monthRange(ym).start);
+    if (endIso >= t || (startIso<=t && endIso>=t)) return endIso;
   }
   return null;
 }
 
-// ---------- Voice (Web Speech API) ----------
-function loadVoices(){
-  let list = speechSynthesis.getVoices();
-  if (!list.length){
-    // Chrome asynchronously loads voices
-    window.speechSynthesis.onvoiceschanged = () => {
-      state.voices = speechSynthesis.getVoices();
-      populateVoiceSelect();
-    };
-  }
-  state.voices = list;
-  populateVoiceSelect();
-}
-function chooseSpanishVoice(){
-  if (!state.voices || !state.voices.length) return null;
-  // Prefer es-MX, then any es-* female-ish
-  const esmx = state.voices.find(v=>/es-MX/i.test(v.lang));
-  if (esmx) return esmx;
-  const es = state.voices.find(v=>/^es[-_]/i.test(v.lang));
-  if (es) return es;
-  return state.voices[0];
-}
-function speak(text){
-  try{
-    if ('speechSynthesis' in window){
-      const u = new SpeechSynthesisUtterance(text);
-      let voice = null;
-      const s = DB.getSettings();
-      if (s.voiceName){
-        voice = state.voices.find(v=>v.name === s.voiceName) || chooseSpanishVoice();
-      }else{
-        voice = chooseSpanishVoice();
-      }
-      if (voice) u.voice = voice;
-      u.lang = (voice && voice.lang) || 'es-MX';
-      u.rate = 0.95;
-      u.pitch = 1;
-      window.speechSynthesis.cancel(); // cancel any pending
-      window.speechSynthesis.speak(u);
-      return true;
-    }
-  }catch(e){}
-  // Fallback beep
-  $('#beep').currentTime = 0;
-  $('#beep').play();
-  return false;
-}
-function populateVoiceSelect(){
-  const sel = $('#ajVoz');
-  if (!sel) return;
-  sel.innerHTML = '';
-  const opt0 = document.createElement('option');
-  opt0.value = ''; opt0.textContent = 'Automática (Español)';
-  sel.appendChild(opt0);
-  for (const v of state.voices){
-    const o = document.createElement('option');
-    o.value = v.name;
-    o.textContent = `${v.name} (${v.lang})`;
-    sel.appendChild(o);
-  }
-  const s = DB.getSettings();
-  sel.value = s.voiceName || '';
-}
-
-// ---------- Mode Switching ----------
-function setMode(mode){
-  state.activeMode = mode;
-  $('#alumno').classList.toggle('hidden', mode!=='alumno');
-  $('#admin').classList.toggle('hidden', mode!=='admin');
-  $$('.mode-btn').forEach(b=>b.classList.toggle('active', b.dataset.mode===mode));
-}
-$$('.mode-btn').forEach(btn => {
-  btn.addEventListener('click', ()=> setMode(btn.dataset.mode));
-});
-
-// ---------- PIN Keypads ----------
-function attachKeypad(el){
-  el.addEventListener('click', (ev)=>{
-    const btn = ev.target.closest('button'); if (!btn) return;
-    const target = el.dataset.target; // 'student' | 'admin'
-    let entry = target==='student' ? state.studentPin : state.adminPinEntry;
-    if (btn.textContent === '←'){
-      entry = entry.slice(0,-1);
-    } else if (btn.textContent === '⟲'){
-      entry = '';
-    } else {
-      if (entry.length < 4) entry += btn.textContent;
-    }
-    if (target==='student'){ state.studentPin = entry; updateDots($('#studentPinDisplay'), entry.length); }
-    else { state.adminPinEntry = entry; updateDots($('#adminPinDisplay'), entry.length); }
-  });
-}
-function updateDots(container, len){
-  const spans = $$('.pin-display span', container.parentElement);
-  spans.forEach((s,i)=>{ s.textContent = (i < len) ? '●' : '•'; });
-}
-attachKeypad($('.keypad[data-target="student"]'));
-attachKeypad($('.keypad[data-target="admin"]'));
-
 // ---------- Student Enter ----------
-$('#studentEnter').addEventListener('click', async ()=>{
+$('#studentEnter').addEventListener('click', ()=>{
   const pin = state.studentPin;
-  if (pin.length !== 4){ speak('Ingrese 4 dígitos'); return; }
+  if (pin.length!==4){ speak('Ingrese 4 dígitos'); return; }
   const students = DB.getStudents();
   const stu = students[pin];
   const resDiv = $('#alumnoResult');
@@ -261,55 +134,52 @@ $('#studentEnter').addEventListener('click', async ()=>{
   const fotoEl = $('#alumnoFoto');
   const mensajeEl = $('#alumnoMensaje');
 
-  // default reset
   resDiv.classList.remove('hidden');
-  fotoEl.src = '';
-  nombreEl.textContent = 'Alumno';
-  clasesEl.textContent = 'Clases disponibles: —';
-  mensajeEl.textContent = '';
+  fotoEl.src=''; nombreEl.textContent='Alumno'; clasesEl.textContent='Clases disponibles: —'; mensajeEl.textContent='';
 
   if (!stu){
     speak('Acceso denegado');
-    mensajeEl.textContent = 'Acceso denegado: PIN no encontrado.';
-    autoClearAlumno();
-    return;
+    mensajeEl.textContent='Acceso denegado: PIN no encontrado.';
+    return autoClearAlumno();
   }
 
   sweepExpired();
 
-  // Check if today is scheduled and not used
   const today = todayISO();
-  let scheduled = null;
+  let scheduled=null, ymHit=null;
   if (stu.schedules){
     for (const ym of Object.keys(stu.schedules)){
       for (const it of (stu.schedules[ym].dates||[])){
-        if (it.date === today && !it.used){
-          scheduled = it; break;
-        }
+        if (it.date===today && !it.used){ scheduled=it; ymHit=ym; break; }
       }
       if (scheduled) break;
     }
   }
 
   if (scheduled){
-    // Grant access
     scheduled.used = true;
     stu.history = stu.history || [];
-    stu.history.unshift({ts: Date.now(), type:'entrada', date: today, note:'Acceso otorgado'});
-    students[pin] = stu;
-    DB.setStudents(students);
+    stu.history.unshift({id: crypto.randomUUID(), ts: Date.now(), type:'entrada', date: today, note:'Acceso otorgado'});
+    students[pin]=stu; DB.setStudents(students);
     speak('Acceso otorgado');
-    nombreEl.textContent = stu.name || 'Alumno';
-    clasesEl.textContent = `Clases disponibles: ${remainingClasses(stu)}`;
+    nombreEl.textContent=stu.name||'Alumno';
+    const rem = remainingClasses(stu);
+    clasesEl.textContent = `Clases disponibles: ${rem}`;
     if (stu.photoDataUrl) fotoEl.src = stu.photoDataUrl;
-    mensajeEl.textContent = 'Bienvenido(a). ¡Disfruta tu clase!';
+    mensajeEl.textContent='Bienvenido(a). ¡Disfruta tu clase!';
+    // Aviso de 1 clase restante
+    if (rem===1){
+      speak('Te queda una clase');
+      banner(`⚠️ ${stu.name||'Alumno'}: queda 1 clase.`);
+      stu.history.unshift({id: crypto.randomUUID(), ts: Date.now(), type:'aviso', date: ymHit, note:'Queda 1 clase'});
+      students[pin]=stu; DB.setStudents(students);
+    }
   }else{
-    // Deny
     speak('Acceso denegado');
-    nombreEl.textContent = stu.name || 'Alumno';
+    nombreEl.textContent=stu.name||'Alumno';
     clasesEl.textContent = `Clases disponibles: ${remainingClasses(stu)}`;
     if (stu.photoDataUrl) fotoEl.src = stu.photoDataUrl;
-    mensajeEl.textContent = 'No tienes clase programada para hoy o ya se registró.';
+    mensajeEl.textContent='No tienes clase programada para hoy o ya se registró.';
   }
 
   autoClearAlumno();
@@ -318,28 +188,49 @@ function autoClearAlumno(){
   clearTimeout(state.autoClearTimer);
   state.autoClearTimer = setTimeout(()=>{
     state.studentPin = '';
-    updateDots($('#studentPinDisplay'), 0);
+    const spans = $$('#studentPinDisplay span'); spans.forEach(s=>s.textContent='•');
     $('#alumnoResult').classList.add('hidden');
   }, 8000);
 }
 
+// ---------- Keypads and Modes ----------
+function setMode(mode){
+  state.activeMode=mode;
+  $('#alumno').classList.toggle('hidden', mode!=='alumno');
+  $('#admin').classList.toggle('hidden', mode!=='admin');
+  $$('.mode-btn').forEach(b=>b.classList.toggle('active', b.dataset.mode===mode));
+}
+$$('.mode-btn').forEach(btn=> btn.addEventListener('click', ()=> setMode(btn.dataset.mode)));
+
+function attachKeypad(el){
+  el.addEventListener('click', (ev)=>{
+    const btn = ev.target.closest('button'); if (!btn) return;
+    const target = el.dataset.target;
+    let entry = target==='student'?state.studentPin:state.adminPinEntry;
+    if (btn.textContent==='←') entry = entry.slice(0,-1);
+    else if (btn.textContent==='⟲') entry = '';
+    else if (entry.length<4) entry += btn.textContent;
+    if (target==='student'){ state.studentPin=entry; updateDots('#studentPinDisplay', entry.length); }
+    else { state.adminPinEntry=entry; updateDots('#adminPinDisplay', entry.length); }
+  });
+}
+function updateDots(sel, len){
+  const spans = $$(sel+' span');
+  spans.forEach((s,i)=> s.textContent=(i<len)?'●':'•');
+}
+attachKeypad($('.keypad[data-target="student"]'));
+attachKeypad($('.keypad[data-target="admin"]'));
+
 // ---------- Admin Enter ----------
 $('#adminEnter').addEventListener('click', ()=>{
-  const pin = state.adminPinEntry;
-  const real = DB.getAdminPin();
-  if (pin === real){
+  if (state.adminPinEntry === DB.getAdminPin()){
     $('#adminPanel').classList.remove('hidden');
-    // populate selects
-    populateAlumnoSelect();
-    refreshTabla();
-    state.adminPinEntry = '';
-    updateDots($('#adminPinDisplay'), 0);
-  }else{
-    speak('Código incorrecto');
-  }
+    populateAlumnoSelect(); refreshTabla(); populatePricesUI(); populatePagosUI();
+    state.adminPinEntry=''; updateDots('#adminPinDisplay',0);
+  } else { speak('Código incorrecto'); }
 });
 
-// ---------- Admin Tabs ----------
+// ---------- Tabs ----------
 $$('.tabs button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     $$('.tabs button').forEach(b=>b.classList.toggle('active', b===btn));
@@ -347,7 +238,8 @@ $$('.tabs button').forEach(btn=>{
     $('#'+btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab==='tab-listado'){ refreshTabla(); }
     if (btn.dataset.tab==='tab-agendar'){ renderCalendar(); }
-    if (btn.dataset.tab==='tab-ajustes'){ $('#ajPinAdmin').value = DB.getAdminPin(); populateVoiceSelect(); }
+    if (btn.dataset.tab==='tab-ajustes'){ $('#ajPinAdmin').value=DB.getAdminPin(); populatePricesUI(); }
+    if (btn.dataset.tab==='tab-pagos'){ populatePagosUI(); }
   });
 });
 
@@ -356,339 +248,321 @@ $('#formAlumno').addEventListener('submit', async (ev)=>{
   ev.preventDefault();
   const name = $('#alNombre').value.trim();
   let pin = $('#alPin').value.trim();
+  const tel = $('#alTelefono').value.trim();
+  const nac = $('#alNacimiento').value || '';
+
   if (!/^\d{4}$/.test(pin)){ alert('El PIN debe tener 4 dígitos.'); return; }
   const students = DB.getStudents();
-  const existOther = students[pin] && (!$('#alNombre').dataset.editing || $('#alNombre').dataset.editing !== pin);
-  if (existOther){ alert('Ese PIN ya está en uso.'); return; }
+  const editing = $('#alNombre').dataset.editing;
+  if ((!editing || editing !== pin) && students[pin]){ alert('Ese PIN ya está en uso.'); return; }
 
-  const stu = students[$('#alNombre').dataset.editing || pin] || {schedules:{}, history:[]};
-  stu.name = name;
-  stu.pin = pin;
+  const stu = students[editing||pin] || {schedules:{}, history:[], payments:{}};
+  stu.name=name; stu.pin=pin; stu.phone=tel; stu.birth=nac;
 
   const file = $('#alFoto').files[0];
   if (file){
-    const dataUrl = await fileToDataUrl(file);
+    const dataUrl = await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); });
     stu.photoDataUrl = dataUrl;
   }
-  // If PIN changed (editing existing), move record
-  if ($('#alNombre').dataset.editing && $('#alNombre').dataset.editing !== pin){
-    delete students[$('#alNombre').dataset.editing];
-  }
-  students[pin] = stu;
-  DB.setStudents(students);
-
-  $('#alNombre').dataset.editing = pin;
+  if (editing && editing!==pin) delete students[editing];
+  students[pin]=stu; DB.setStudents(students);
+  $('#alNombre').dataset.editing=pin;
   alert('Alumno guardado.');
-  populateAlumnoSelect();
-  refreshTabla();
+  populateAlumnoSelect(); refreshTabla(); populatePagosUI();
+});
+$('#btnEditarAlumno').addEventListener('click', ()=>{
+  const students = DB.getStudents();
+  const pin = prompt('PIN a editar:');
+  if (!pin) return;
+  const stu = students[pin];
+  if (!stu){ alert('No encontrado'); return; }
+  $('#alNombre').value=stu.name||'';
+  $('#alNombre').dataset.editing=stu.pin;
+  $('#alPin').value=stu.pin;
+  $('#alTelefono').value=stu.phone||'';
+  $('#alNacimiento').value=stu.birth||'';
 });
 $('#btnEliminarAlumno').addEventListener('click', ()=>{
-  const editing = $('#alNombre').dataset.editing;
-  if (!editing){ alert('Primero selecciona o crea un alumno.'); return; }
+  const key = $('#alNombre').dataset.editing || $('#alPin').value.trim();
+  if (!key){ alert('Selecciona o crea un alumno'); return; }
   if (confirm('¿Eliminar este alumno?')){
-    DB.deleteStudent(editing);
-    $('#alNombre').value=''; $('#alPin').value=''; $('#alFoto').value='';
+    DB.deleteStudent(key);
+    $('#alNombre').value=''; $('#alPin').value=''; $('#alTelefono').value=''; $('#alNacimiento').value=''; $('#alFoto').value='';
     $('#alNombre').dataset.editing='';
-    populateAlumnoSelect();
-    refreshTabla();
+    populateAlumnoSelect(); refreshTabla(); populatePagosUI();
   }
 });
-async function fileToDataUrl(file){
-  return new Promise((res,rej)=>{
-    const r = new FileReader();
-    r.onload = ()=> res(r.result);
-    r.onerror = rej;
-    r.readAsDataURL(file);
-  });
-}
 
-// ---------- Agendar Clases ----------
+// ---------- Agendar ----------
 function populateAlumnoSelect(){
   const sel = $('#agAlumno');
-  sel.innerHTML = '';
-  const students = DB.getStudents();
-  const pins = Object.keys(students).sort((a,b)=>students[a].name.localeCompare(students[b].name));
+  sel.innerHTML='';
+  const students=DB.getStudents();
+  const pins = Object.keys(students).sort((a,b)=> (students[a].name||'').localeCompare(students[b].name||''));
   for (const pin of pins){
-    const o = document.createElement('option');
-    o.value = pin;
-    o.textContent = students[pin].name + ' — ' + pin;
-    sel.appendChild(o);
+    const o=document.createElement('option'); o.value=pin; o.textContent=`${students[pin].name||''} — ${pin}`; sel.appendChild(o);
   }
-  // Also plug into registro form for quick edit
-  if (pins.length){
-    // Load first student into form for quick editing
-    const stu = students[pins[0]];
-    $('#alNombre').value = stu.name || '';
-    $('#alNombre').dataset.editing = stu.pin;
-    $('#alPin').value = stu.pin;
-  }
-  // Default month = current month
-  const nowYM = ymISO(new Date());
-  $('#agMes').value = nowYM;
+  const nowYM = ymISO(new Date()); $('#agMes').value=nowYM;
+  const s = DB.getSettings();
+  const qty = parseInt($('#agCantidad').value,10);
+  $('#agPrecio').value = s.prices?.[qty] ?? 0;
   renderCalendar();
-}
 
+  // Also fill payments tab selects
+  const selPg = $('#pgAlumno');
+  selPg.innerHTML='';
+  for (const pin of pins){
+    const o=document.createElement('option'); o.value=pin; o.textContent=`${students[pin].name||''} — ${pin}`; selPg.appendChild(o);
+  }
+  $('#pgMes').value = nowYM;
+}
 $('#agMes').addEventListener('change', renderCalendar);
-$('#agPaquete').addEventListener('change', ()=> renderCalendar());
-
-function renderCalendar(){
-  const calendar = $('#calendar');
-  calendar.innerHTML = '';
-  const ym = $('#agMes').value || ymISO(new Date());
-  state.selectedMonth = ym;
-  const {start, end} = monthRange(ym);
-
-  // DOW headers
-  const dows = ['L','M','M','J','V','S','D'];
-  for (const d of dows){
-    const cell = document.createElement('div');
-    cell.className = 'dow';
-    cell.textContent = d;
-    calendar.appendChild(cell);
-  }
-  // leading blanks
-  const firstDow = (start.getDay() + 6)%7; // convert to Monday=0
-  for (let i=0; i<firstDow; i++){
-    const blank = document.createElement('div');
-    blank.className = 'day';
-    calendar.appendChild(blank);
-  }
-
-  // Load existing selections for selected student+month
-  const pin = $('#agAlumno').value;
-  const students = DB.getStudents();
-  const stu = students[pin];
-  const pkgMax = clamp(parseInt($('#agPaquete').value,10)||12, 1, 12);
-  state.selectedDays = new Set();
-  if (stu && stu.schedules && stu.schedules[ym] && Array.isArray(stu.schedules[ym].dates)){
-    stu.schedules[ym].dates.forEach(it=>state.selectedDays.add(it.date));
-  }
-
-  const today = todayISO();
-  const loopDate = new Date(start);
-  while(loopDate <= end){
-    const iso = dateToISO(loopDate);
-    const cell = document.createElement('div');
-    cell.className = 'day';
-
-    const isPast = iso < today;
-    cell.textContent = loopDate.getDate();
-    if (!isPast) cell.classList.add('selectable');
-    if (iso === today) cell.classList.add('today');
-    if (state.selectedDays.has(iso)) cell.classList.add('selected');
-    if (isPast) cell.classList.add('past');
-
-    cell.addEventListener('click', ()=>{
-      if (iso < today) return;
-      if (state.selectedDays.has(iso)){
-        state.selectedDays.delete(iso);
-        cell.classList.remove('selected');
-      } else {
-        if (state.selectedDays.size >= pkgMax){ speak('Límite alcanzado'); return; }
-        state.selectedDays.add(iso);
-        cell.classList.add('selected');
-      }
-    });
-
-    calendar.appendChild(cell);
-    loopDate.setDate(loopDate.getDate()+1);
-  }
-
-  $('#btnMesAnterior').onclick = ()=>{
-    const [y,m] = ym.split('-').map(Number);
-    const prev = new Date(y, m-2, 1);
-    $('#agMes').value = ymISO(prev);
-    renderCalendar();
-  };
-  $('#btnMesSiguiente').onclick = ()=>{
-    const [y,m] = ym.split('-').map(Number);
-    const next = new Date(y, m, 1);
-    $('#agMes').value = ymISO(next);
-    renderCalendar();
-  };
-}
-
-$('#btnGuardarCalendario').addEventListener('click', ()=>{
-  const pin = $('#agAlumno').value;
-  if (!pin){ alert('Selecciona un alumno.'); return; }
-  const students = DB.getStudents();
-  const stu = students[pin] || {schedules:{}, history:[]};
-  const ym = state.selectedMonth || ymISO(new Date());
-  const dates = Array.from(state.selectedDays).sort();
-  if (!dates.length){ alert('Selecciona al menos un día.'); return; }
-  stu.schedules = stu.schedules || {};
-  stu.schedules[ym] = {dates: dates.map(d=>({date:d, used:false})), createdAt: Date.now()};
-  students[pin] = stu;
-  DB.setStudents(students);
-  alert('Calendario guardado.');
-  refreshTabla();
+$('#agCantidad').addEventListener('change', ()=>{
+  const s=DB.getSettings(); const qty=parseInt($('#agCantidad').value,10);
+  $('#agPrecio').value=s.prices?.[qty]??0; renderCalendar();
 });
 
-// ---------- Listado & Historial ----------
+function renderCalendar(){
+  const calendar=$('#calendar'); calendar.innerHTML='';
+  const ym = $('#agMes').value || ymISO(new Date());
+  state.selectedMonth=ym;
+  const {start,end}=monthRange(ym);
+  const dows=['L','M','M','J','V','S','D'];
+  for (const d of dows){ const c=document.createElement('div'); c.className='dow'; c.textContent=d; calendar.appendChild(c); }
+  const firstDow=(start.getDay()+6)%7;
+  for(let i=0;i<firstDow;i++){ const b=document.createElement('div'); b.className='day'; calendar.appendChild(b); }
+  const pin=$('#agAlumno').value; const students=DB.getStudents(); const stu=students[pin];
+  const qtyMax = clamp(parseInt($('#agCantidad').value,10)||12,1,12);
+  state.selectedDays = new Set();
+  if (stu && stu.schedules && stu.schedules[ym]){
+    (stu.schedules[ym].dates||[]).forEach(it=>state.selectedDays.add(it.date));
+  }
+  const today=todayISO();
+  const loop=new Date(start);
+  while(loop<=end){
+    const iso=dateToISO(loop);
+    const c=document.createElement('div'); c.className='day';
+    const isPast = iso<today;
+    c.textContent=loop.getDate();
+    if (!isPast) c.classList.add('selectable');
+    if (iso===today) c.classList.add('today');
+    if (state.selectedDays.has(iso)) c.classList.add('selected');
+    if (isPast) c.classList.add('past');
+    c.addEventListener('click',()=>{
+      if (iso<today) return;
+      if (state.selectedDays.has(iso)){ state.selectedDays.delete(iso); c.classList.remove('selected'); }
+      else { if (state.selectedDays.size>=qtyMax){ speak('Límite alcanzado'); return; } state.selectedDays.add(iso); c.classList.add('selected'); }
+    });
+    calendar.appendChild(c);
+    loop.setDate(loop.getDate()+1);
+  }
+}
+$('#btnMesAnterior').onclick = ()=>{ const [y,m]=$('#agMes').value.split('-').map(Number); $('#agMes').value=ymISO(new Date(y,m-2,1)); renderCalendar(); };
+$('#btnMesSiguiente').onclick = ()=>{ const [y,m]=$('#agMes').value.split('-').map(Number); $('#agMes').value=ymISO(new Date(y,m,1)); renderCalendar(); };
+
+$('#btnGuardarCalendario').addEventListener('click', ()=>{
+  const pin=$('#agAlumno').value; if (!pin){ alert('Selecciona un alumno'); return; }
+  const students=DB.getStudents(); const stu=students[pin]||{schedules:{},history:[],payments:{}};
+  const ym=state.selectedMonth||ymISO(new Date());
+  const dates=Array.from(state.selectedDays).sort(); if (!dates.length){ alert('Selecciona al menos un día'); return; }
+  const qty=parseInt($('#agCantidad').value,10); const price=parseFloat($('#agPrecio').value||'0');
+  stu.schedules=stu.schedules||{};
+  stu.schedules[ym]={dates:dates.map(d=>({date:d,used:false})), createdAt:Date.now(), qty, price};
+  stu.history = stu.history||[];
+  stu.history.unshift({id: crypto.randomUUID(), ts: Date.now(), type:'agendado', date: ym, note:`${qty} clases, $${price}`});
+  students[pin]=stu; DB.setStudents(students);
+  alert('Calendario guardado.'); refreshTabla(); populatePagosUI();
+});
+
+// ---------- Listado & Historial + Export ----------
 function refreshTabla(){
   sweepExpired();
-  const tbody = $('#tablaAlumnos tbody');
-  tbody.innerHTML = '';
-  const students = DB.getStudents();
-  const pins = Object.keys(students).sort((a,b)=>students[a].name.localeCompare(students[b].name));
+  const tbody=$('#tablaAlumnos tbody'); tbody.innerHTML='';
+  const students=DB.getStudents();
+  const pins=Object.keys(students).sort((a,b)=> (students[a].name||'').localeCompare(students[b].name||''));
   for (const pin of pins){
-    const stu = students[pin];
-    const tr = document.createElement('tr');
-    const rem = remainingClasses(stu);
-    const venc = monthEndForStudent(stu) || '—';
-    tr.innerHTML = `<td>${stu.name||''}</td><td>${pin}</td><td>${rem}</td><td>${venc}</td><td><button data-pin="${pin}" class="mini">Perfil</button></td>`;
+    const stu=students[pin];
+    const rem=remainingClasses(stu);
+    const venc=monthEndForStudent(stu)||'—';
+    const tr=document.createElement('tr');
+    const warn = rem===1 ? ' style="color:#ffd166;font-weight:700;"' : '';
+    tr.innerHTML=`<td${warn}>${stu.name||''}</td><td>${pin}</td><td${warn}>${rem}</td><td>${venc}</td><td><button class="mini" data-pin="${pin}">Perfil</button></td>`;
     tbody.appendChild(tr);
   }
-  // Attach profile buttons
   $$('#tablaAlumnos .mini').forEach(b=>b.addEventListener('click', ()=>showPerfil(b.dataset.pin)));
-  // Global expiring soon banner
-  showExpiringBanner();
 }
-
 function showPerfil(pin){
-  const container = $('#historial');
-  container.innerHTML = '';
-  const students = DB.getStudents();
-  const stu = students[pin];
-  if (!stu){ container.textContent = 'Alumno no encontrado.'; return; }
-  const rem = remainingClasses(stu);
-  const venc = monthEndForStudent(stu) || '—';
-  const hdr = document.createElement('div');
-  hdr.innerHTML = `<h4>${stu.name} — ${pin}</h4>
+  const container=$('#historial'); container.innerHTML='';
+  const students=DB.getStudents(); const stu=students[pin]; if (!stu){ container.textContent='Alumno no encontrado'; return; }
+  const rem=remainingClasses(stu); const venc=monthEndForStudent(stu)||'—';
+  const hdr=document.createElement('div');
+  hdr.innerHTML=`<h4>${stu.name} — ${pin}</h4>
+    <p>Tel: ${stu.phone||'—'} • Nac: ${stu.birth||'—'}</p>
     <p>Clases restantes: ${rem} • Vence: ${venc}</p>
     <div class="actions">
       <button id="btnReagendar">Re-agendar siguiente mes</button>
       <button id="btnCargarEnFormulario">Editar en pestaña Registro</button>
+      <button id="btnBorrarHistorialTodo" class="danger">Borrar historial</button>
     </div>`;
   container.appendChild(hdr);
 
-  const hist = document.createElement('div');
-  const items = (stu.history||[]).slice(0,200);
-  hist.innerHTML = '<h4>Historial</h4>' + items.map(h=>{
-    const when = new Date(h.ts||Date.now()).toLocaleString('es-MX');
-    return `<div>• ${when} — ${h.type} — ${h.date || ''} ${h.note?('— '+h.note):''}</div>`;
-  }).join('');
-  container.appendChild(hist);
+  const hist=document.createElement('div'); hist.innerHTML='<h4>Historial</h4>';
+  const list=document.createElement('div'); list.id='histList';
+  (stu.history||[]).forEach(h=>{
+    const row=document.createElement('div'); row.className='hist-item'; row.dataset.id=h.id||'';
+    const when=new Date(h.ts||Date.now()).toLocaleString('es-MX');
+    row.innerHTML=`<span class="tag">${h.type}</span><span>${when}</span><span>${h.date||''}</span><span>${h.note||''}</span>
+      <div class="actions"><button class="mini" data-act="edit">Editar</button><button class="mini danger" data-act="del">Eliminar</button></div>`;
+    list.appendChild(row);
+  });
+  hist.appendChild(list); container.appendChild(hist);
 
-  $('#btnReagendar').onclick = ()=>{
-    // Jump to Agendar with next month preselected and same paquete size if exists
-    $$('.tabs button').forEach(b=>b.classList.remove('active'));
-    $('[data-tab="tab-agendar"]').classList.add('active');
-    $$('.tab').forEach(t=>t.classList.remove('active'));
-    $('#tab-agendar').classList.add('active');
-    $('#agAlumno').value = pin;
-    // next month
-    const nowYM = ymISO(new Date());
-    const [y,m]= nowYM.split('-').map(Number);
-    const next = ymISO(new Date(y, m, 1));
-    $('#agMes').value = next;
-    renderCalendar();
-  };
-  $('#btnCargarEnFormulario').onclick = ()=>{
-    $$('.tabs button').forEach(b=>b.classList.remove('active'));
-    $('[data-tab="tab-registro"]').classList.add('active');
-    $$('.tab').forEach(t=>t.classList.remove('active'));
-    $('#tab-registro').classList.add('active');
-    $('#alNombre').value = stu.name || '';
-    $('#alNombre').dataset.editing = stu.pin;
-    $('#alPin').value = stu.pin;
-  };
+  list.addEventListener('click',(e)=>{
+    const btn=e.target.closest('button'); if(!btn) return;
+    const item=btn.closest('.hist-item'); const id=item.dataset.id;
+    const st=DB.getStudents(); const su=st[pin]; const idx=(su.history||[]).findIndex(x=>x.id===id);
+    if (idx<0){ alert('No encontrado'); return; }
+    if (btn.dataset.act==='del'){
+      if (confirm('¿Eliminar este registro?')){ su.history.splice(idx,1); st[pin]=su; DB.setStudents(st); showPerfil(pin); }
+    }else{
+      const cur=su.history[idx];
+      const t=prompt('Tipo:',cur.type||''); if(t===null) return;
+      const d=prompt('Fecha asociada (YYYY-MM o YYYY-MM-DD):',cur.date||''); if(d===null) return;
+      const n=prompt('Nota:',cur.note||''); if(n===null) return;
+      cur.type=t.trim()||cur.type; cur.date=d.trim()||cur.date; cur.note=n.trim();
+      st[pin]=su; DB.setStudents(st); showPerfil(pin);
+    }
+  });
+
+  $('#btnBorrarHistorialTodo').onclick=()=>{ if (confirm('¿Borrar TODO el historial?')){ stu.history=[]; students[pin]=stu; DB.setStudents(students); showPerfil(pin);} };
+  $('#btnReagendar').onclick=()=>{ $$('.tabs button').forEach(b=>b.classList.remove('active')); $('[data-tab="tab-agendar"]').classList.add('active'); $$('.tab').forEach(t=>t.classList.remove('active')); $('#tab-agendar').classList.add('active'); $('#agAlumno').value=pin; const now=ymISO(new Date()); const [y,m]=now.split('-').map(Number); $('#agMes').value=ymISO(new Date(y,m,1)); renderCalendar(); };
+  $('#btnCargarEnFormulario').onclick=()=>{ $$('.tabs button').forEach(b=>b.classList.remove('active')); $('[data-tab="tab-registro"]').classList.add('active'); $$('.tab').forEach(t=>t.classList.remove('active')); $('#tab-registro').classList.add('active'); $('#alNombre').value=stu.name||''; $('#alNombre').dataset.editing=stu.pin; $('#alPin').value=stu.pin; $('#alTelefono').value=stu.phone||''; $('#alNacimiento').value=stu.birth||''; };
 }
 
-// ---------- Expiring soon banner (admin) ----------
-function showExpiringBanner(){
+// Exportar historial mensual (HTML imprimible -> PDF)
+$('#btnExportarMes').addEventListener('click', ()=>{
+  const ym = $('#expMes').value || ymISO(new Date());
   const students = DB.getStudents();
-  const t = todayISO();
-  const tomorrow = dateToISO(new Date(Date.now()+24*3600*1000));
-  const expiring = [];
-  for (const pin of Object.keys(students)){
+  let html = `<!doctype html><meta charset="utf-8"><title>Historial ${ym}</title>
+  <style>
+    body{font-family:Arial, sans-serif; padding:20px}
+    h1{margin:0 0 10px}
+    .al{margin:12px 0; border:1px solid #ddd; border-radius:8px; padding:10px}
+    .meta{color:#444; font-size:13px}
+    table{width:100%; border-collapse:collapse; margin-top:8px}
+    th,td{border:1px solid #ccc; padding:6px; font-size:13px; text-align:left}
+  </style>
+  <h1>Historial mensual — ${ym}</h1>`;
+  const pins = Object.keys(students).sort((a,b)=> (students[a].name||'').localeCompare(students[b].name||''));
+  for (const pin of pins){
     const stu = students[pin];
-    const end = monthEndForStudent(stu);
-    if (end && end === tomorrow){
-      expiring.push(stu.name || pin);
-    }
-  }
-  if (expiring.length){
-    speak('Tienes mensualidades que terminan mañana');
-    alert('Aviso: Terminación mañana → ' + expiring.join(', '));
-    // Try Notification API
-    try {
-      if (Notification.permission==='granted'){
-        new Notification('Aviso mensualidad', {body: 'Terminan mañana: ' + expiring.join(', ')});
+    // filtrar historial y schedule del mes
+    const sched = stu.schedules?.[ym];
+    const qty = sched?.qty ?? '-';
+    const price = sched?.price ?? 0;
+    const dates = (sched?.dates||[]).map(d=>`${d.date} ${d.used?'✓':'—'}`);
+    const hist = (stu.history||[]).filter(h=> (h.date||'').startsWith(ym) || (h.type==='entrada' && (h.date||'').startsWith(ym)));
+    html += `<div class="al"><strong>${stu.name||''} — ${pin}</strong>
+      <div class="meta">Cantidad: ${qty} • Precio: $${price}</div>
+      <div>Fechas: ${dates.join(', ')||'—'}</div>
+      <table><thead><tr><th>Tipo</th><th>Fecha</th><th>Nota</th></tr></thead><tbody>`;
+    if (hist.length){
+      for (const h of hist){
+        html += `<tr><td>${h.type||''}</td><td>${h.date||''}</td><td>${h.note||''}</td></tr>`;
       }
-    } catch(e){}
+    }else{
+      html += `<tr><td colspan="3">Sin movimientos del mes</td></tr>`;
+    }
+    const paid = (stu.payments?.[ym]||[]).reduce((a,b)=>a+(b.amount||0),0);
+    const bal = (price||0) - paid;
+    html += `</tbody></table><div class="meta">Pagado: $${paid} • Saldo: $${bal}</div></div>`;
   }
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=> w.print(), 300);
+});
+
+// ---------- Pagos ----------
+function populatePagosUI(){
+  const students=DB.getStudents();
+  const pin=$('#pgAlumno').value || Object.keys(students)[0] || '';
+  const ym = $('#pgMes').value || ymISO(new Date());
+  renderPagos(pin, ym);
+}
+$('#pgAlumno').addEventListener('change', ()=> renderPagos($('#pgAlumno').value, $('#pgMes').value));
+$('#pgMes').addEventListener('change', ()=> renderPagos($('#pgAlumno').value, $('#pgMes').value));
+
+function renderPagos(pin, ym){
+  const box = $('#pgResumen'); box.innerHTML='';
+  const students=DB.getStudents(); const stu=students[pin];
+  if (!stu){ box.textContent='Selecciona un alumno'; return; }
+  stu.payments = stu.payments || {};
+  const sched = stu.schedules?.[ym];
+  const qty = sched?.qty || 0;
+  const price = sched?.price || 0;
+  const pagos = stu.payments[ym] || [];
+  const total = pagos.reduce((a,b)=>a+(b.amount||0),0);
+  const bal = (price||0) - total;
+  const lines = [`<div class="line"><strong>${stu.name||''}</strong><span>Mes ${ym}</span></div>`,`<div class="line"><span>Clases: ${qty}</span><span>Precio: $${price}</span></div>`,`<div class="line"><span>Pagado:</span><span>$${total}</span></div>`,`<div class="line"><span>Saldo:</span><span class="${bal>0?'balance-neg':'balance-pos'}">$${bal}</span></div>`,`<div class="line"><strong>Pagos</strong><span># ${pagos.length}</span></div>`];
+  box.innerHTML = lines.join('');
+  pagos.forEach(p=>{
+    const row=document.createElement('div'); row.className='line';
+    const when=new Date(p.ts||Date.now()).toLocaleString('es-MX');
+    row.innerHTML=`<span>${when}</span><span>$${p.amount||0} ${p.note?('— '+p.note):''}</span>`;
+    box.appendChild(row);
+  });
+
+  $('#pgRegistrar').onclick = ()=>{
+    const amt = parseFloat($('#pgMonto').value||'0'); if (!amt){ alert('Monto inválido'); return; }
+    const note = prompt('Nota (opcional):','');
+    const st=DB.getStudents();
+    const su=st[pin]; su.payments=su.payments||{}; su.payments[ym]=su.payments[ym]||[];
+    su.payments[ym].push({ts: Date.now(), amount: amt, note: note||''});
+    st[pin]=su; DB.setStudents(st);
+    $('#pgMonto').value='';
+    renderPagos(pin, ym);
+  };
+  $('#pgEliminarMes').onclick = ()=>{
+    if (confirm('¿Eliminar TODOS los pagos de este mes?')){
+      const st=DB.getStudents(); const su=st[pin]; if (su.payments && su.payments[ym]) delete su.payments[ym]; st[pin]=su; DB.setStudents(st); renderPagos(pin,ym);
+    }
+  };
 }
 
 // ---------- Ajustes ----------
 $('#ajPinAdmin').addEventListener('change', (e)=>{
-  const v = e.target.value.trim();
-  if (/^\d{4}$/.test(v)) { DB.setAdminPin(v); speak('PIN actualizado'); }
-  else alert('PIN inválido');
+  const v=e.target.value.trim(); if (/^\d{4}$/.test(v)){ DB.setAdminPin(v); speak('PIN actualizado'); } else alert('PIN inválido');
 });
-$('#btnProbarVoz').addEventListener('click', ()=>{
-  const sel = $('#ajVoz');
-  const s = DB.getSettings();
-  s.voiceName = sel.value || '';
-  DB.setSettings(s);
-  speak('Esta es una prueba de voz en español.');
+function populatePricesUI(){
+  const grid=$('#ajPrecios'); const s=DB.getSettings(); grid.innerHTML='';
+  for(let i=1;i<=12;i++){ const w=document.createElement('div'); w.innerHTML=`<label>${i===1?'Clase suelta (1)':i+' clases'}<input type="number" step="1" min="0" data-qty="${i}" value="${s.prices?.[i]??0}"></label>`; grid.appendChild(w); }
+}
+$('#btnGuardarPrecios').addEventListener('click', ()=>{
+  const s=DB.getSettings(); s.prices=s.prices||{};
+  $$('#ajPrecios input[type="number"]').forEach(inp=>{ const q=parseInt(inp.dataset.qty,10); s.prices[q]=parseFloat(inp.value||'0'); });
+  DB.setSettings(s); alert('Precios guardados.');
 });
+$('#btnProbarVoz').addEventListener('click', ()=> speak('Esta es una prueba de voz en español.'));
 $('#btnPermitirNotifs').addEventListener('click', async ()=>{
-  try{
-    if ('Notification' in window){
-      const perm = await Notification.requestPermission();
-      alert('Permiso de notificaciones: ' + perm);
-    }else{
-      alert('Las notificaciones no son compatibles en este dispositivo.');
-    }
-  }catch(e){ alert('No fue posible solicitar permiso.'); }
+  try{ if ('Notification' in window){ const perm=await Notification.requestPermission(); alert('Permiso: '+perm); } else alert('No compatible.'); }catch(e){ alert('No fue posible.'); }
 });
 $('#btnBackup').addEventListener('click', ()=>{
-  const data = {
-    students: DB.getStudents(),
-    settings: DB.getSettings(),
-    adminPin: DB.getAdminPin()
-  };
-  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'backup_academia.json';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(()=>{
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, 0);
+  const data={students:DB.getStudents(), settings:DB.getSettings(), adminPin:DB.getAdminPin()};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='backup_academia_v3.json'; document.body.appendChild(a); a.click(); setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); },0);
 });
 $('#inputRestore').addEventListener('change', async (e)=>{
-  const file = e.target.files[0];
-  if (!file) return;
-  const text = await file.text();
-  try{
-    const data = JSON.parse(text);
-    if (data.students) localStorage.setItem('students', JSON.stringify(data.students));
-    if (data.settings) localStorage.setItem('settings', JSON.stringify(data.settings));
-    if (data.adminPin) localStorage.setItem('adminPin', data.adminPin);
-    alert('Datos restaurados.');
-    populateAlumnoSelect();
-    refreshTabla();
-  }catch(err){
-    alert('Archivo inválido.');
-  }
+  const file=e.target.files[0]; if(!file) return;
+  try{ const text=await file.text(); const data=JSON.parse(text); if(data.students) localStorage.setItem('students',JSON.stringify(data.students)); if(data.settings) localStorage.setItem('settings',JSON.stringify(data.settings)); if(data.adminPin) localStorage.setItem('adminPin',data.adminPin); alert('Datos restaurados.'); populateAlumnoSelect(); refreshTabla(); populatePricesUI(); populatePagosUI(); }catch(err){ alert('Archivo inválido.'); }
 });
 
-// ---------- TTS & init ----------
+// ---------- Init ----------
 function init(){
   ensureDefaults();
-  loadVoices();
   sweepExpired();
   setMode('alumno');
-  if ('serviceWorker' in navigator){
-    navigator.serviceWorker.register('sw.js');
-  }
+  if ('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js'); }
+  $('#expMes').value = ymISO(new Date());
 }
 window.addEventListener('load', init);
-
-// ---------- Install events for iOS PWA (limited) ----------
-// Nothing special; manifest + icons + "Add to Home Screen" via Safari.

@@ -3,8 +3,8 @@
   "short_name": "Accesos NH",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#0e0e1a",
-  "theme_color": "#1e1e3c",
+  "background_color": "#0b0b1c",
+  "theme_color": "#12123a",
   "icons": [
     {
       "src": "assets/icon-192.png",

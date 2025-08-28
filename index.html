@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#1e1e3c">
+  <meta name="theme-color" content="#12123a">
   <title>Academia de Danza NH — Accesos</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="assets/icon-192.png">
@@ -26,6 +26,9 @@
       <button class="mode-btn" data-mode="admin">Modo Administrador</button>
     </section>
 
+    <!-- Avisos globales -->
+    <div id="banner" class="banner hidden"></div>
+
     <!-- MODO ALUMNO -->
     <section id="alumno" class="card hidden">
       <h2>Entrada de Alumno</h2>
@@ -35,7 +38,7 @@
         <span>•</span><span>•</span><span>•</span><span>•</span>
       </div>
 
-      <div class="keypad" data-target="student">
+      <div class="keypad" data-target="student" role="group" aria-label="Teclado numérico alumno">
         <button>1</button><button>2</button><button>3</button>
         <button>4</button><button>5</button><button>6</button>
         <button>7</button><button>8</button><button>9</button>
@@ -65,7 +68,7 @@
         <span>•</span><span>•</span><span>•</span><span>•</span>
       </div>
 
-      <div class="keypad" data-target="admin">
+      <div class="keypad" data-target="admin" role="group" aria-label="Teclado numérico admin">
         <button>1</button><button>2</button><button>3</button>
         <button>4</button><button>5</button><button>6</button>
         <button>7</button><button>8</button><button>9</button>
@@ -79,6 +82,7 @@
           <button data-tab="tab-registro" class="active">Registrar/Editar</button>
           <button data-tab="tab-agendar">Agendar Clases</button>
           <button data-tab="tab-listado">Listado & Historial</button>
+          <button data-tab="tab-pagos">Pagos</button>
           <button data-tab="tab-ajustes">Ajustes</button>
         </nav>
 
@@ -86,20 +90,28 @@
           <h3>Alumno</h3>
           <form id="formAlumno">
             <label>Nombre completo
-              <input type="text" id="alNombre" required minlength="3">
+              <input type="text" id="alNombre" required minlength="3" autocomplete="off">
             </label>
-            <label>PIN (4 dígitos únicos)
-              <input type="text" id="alPin" pattern="\d{4}" maxlength="4" inputmode="numeric">
+            <div class="row">
+              <label>PIN (4 dígitos únicos)
+                <input type="text" id="alPin" pattern="\d{4}" maxlength="4" inputmode="numeric" autocomplete="off">
+              </label>
+              <label>Teléfono
+                <input type="tel" id="alTelefono" inputmode="tel" autocomplete="off">
+              </label>
+            </div>
+            <label>Fecha de nacimiento
+              <input type="date" id="alNacimiento">
             </label>
             <label>Foto de perfil
               <input type="file" id="alFoto" accept="image/*">
             </label>
             <div class="actions">
               <button class="primary" type="submit">Guardar</button>
+              <button type="button" id="btnEditarAlumno">Editar…</button>
               <button class="danger" type="button" id="btnEliminarAlumno">Eliminar</button>
             </div>
           </form>
-          <div class="helper">Tip: PIN y letras grandes para evitar zoom en iPad/iPhone.</div>
         </section>
 
         <section id="tab-agendar" class="tab">
@@ -111,16 +123,24 @@
             <label>Mes
               <input type="month" id="agMes">
             </label>
-            <label>Paquete
-              <select id="agPaquete">
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="4" selected>4</option>
-                <option value="6">6</option>
-                <option value="8">8</option>
-                <option value="10">10</option>
-                <option value="12">12</option>
+            <label>Cantidad
+              <select id="agCantidad">
+                <option value="1">Clase suelta (1)</option>
+                <option value="2">2 clases</option>
+                <option value="3">3 clases</option>
+                <option value="4" selected>4 clases</option>
+                <option value="5">5 clases</option>
+                <option value="6">6 clases</option>
+                <option value="7">7 clases</option>
+                <option value="8">8 clases</option>
+                <option value="9">9 clases</option>
+                <option value="10">10 clases</option>
+                <option value="11">11 clases</option>
+                <option value="12">12 clases</option>
               </select>
+            </label>
+            <label>Precio (editable)
+              <input type="number" id="agPrecio" min="0" step="1" placeholder="0">
             </label>
           </div>
           <div id="calendar" class="calendar"></div>
@@ -129,22 +149,46 @@
             <button id="btnMesAnterior">◀ Mes anterior</button>
             <button id="btnMesSiguiente">Mes siguiente ▶</button>
           </div>
-          <p class="helper">Máximo 12 días por mes. Las clases que no se tomen en su día se perderán automáticamente.</p>
+          <p class="helper">Selecciona hasta la **Cantidad** elegida. Precio se guarda en el mes del alumno.</p>
         </section>
 
         <section id="tab-listado" class="tab">
           <h3>Listado</h3>
           <table id="tablaAlumnos">
-            <thead><tr><th>Nombre</th><th>PIN</th><th>Clases restantes</th><th>Vence</th><th>Acciones</th></tr></thead>
+            <thead><tr><th>Nombre</th><th>PIN</th><th>Restan</th><th>Vence</th><th>Acciones</th></tr></thead>
             <tbody></tbody>
           </table>
+          <div class="actions">
+            <button id="btnExportarMes" class="primary">Exportar historial mensual (PDF)</button>
+            <label>Mes <input type="month" id="expMes"></label>
+          </div>
           <div id="historial" class="history"></div>
+        </section>
+
+        <section id="tab-pagos" class="tab">
+          <h3>Pagos por mes</h3>
+          <div class="row">
+            <label>Alumno
+              <select id="pgAlumno"></select>
+            </label>
+            <label>Mes
+              <input type="month" id="pgMes">
+            </label>
+            <label>Monto a registrar
+              <input type="number" id="pgMonto" min="0" step="1">
+            </label>
+          </div>
+          <div class="actions">
+            <button id="pgRegistrar" class="primary">Registrar pago</button>
+            <button id="pgEliminarMes" class="danger">Eliminar pagos del mes</button>
+          </div>
+          <div id="pgResumen" class="pg-box"></div>
         </section>
 
         <section id="tab-ajustes" class="tab">
           <h3>Ajustes</h3>
           <label>PIN Administrador
-            <input type="text" id="ajPinAdmin" pattern="\d{4}" maxlength="4" inputmode="numeric">
+            <input type="text" id="ajPinAdmin" pattern="\d{4}" maxlength="4" inputmode="numeric" autocomplete="off">
           </label>
           <div class="row">
             <label>Voz (Español)
@@ -152,19 +196,23 @@
             </label>
             <button id="btnProbarVoz">Probar voz</button>
           </div>
+          <details class="prices">
+            <summary>Precios por cantidad (1–12)</summary>
+            <div class="grid-prices" id="ajPrecios"></div>
+            <button id="btnGuardarPrecios">Guardar precios</button>
+          </details>
           <div class="row">
             <button id="btnPermitirNotifs">Permitir notificaciones</button>
             <button id="btnBackup">Exportar copia</button>
             <label class="filelike">Importar copia<input type="file" id="inputRestore" accept="application/json"></label>
           </div>
-          <p class="helper">La notificación “un día antes” depende del navegador. Siempre verás el aviso al abrir la app.</p>
         </section>
       </div>
     </section>
   </main>
 
   <footer class="foot">
-    <small>v1.0 — PWA offline • © Academia de Danza NH</small>
+    <small>v3.0 — PWA offline • © Academia de Danza NH</small>
   </footer>
 
   <audio id="beep" src="assets/beep.wav" preload="auto"></audio>
