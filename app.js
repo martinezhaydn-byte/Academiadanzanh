@@ -20,6 +20,8 @@ function saveConfig(c){ localStorage.setItem(CFG_KEY, JSON.stringify(c)); }
 let config = loadConfig();
 let currentMode = 'alumno';
 let kioskClearTimer = null;
+let lastKioskStudentId = null;
+let autoPendingPaymentFlag = false; // set when click "Reagendar"
 
 function applyBrand(){
   document.documentElement.style.setProperty('--primary', config.primary);
@@ -27,17 +29,23 @@ function applyBrand(){
   const title = $('#brand-title'); if(title) title.textContent = config.brand_name;
   document.title = config.brand_name;
 }
+function switchToTab(tabId){
+  $$('#tabs button').forEach(x=>x.classList.remove('active'));
+  $(`#tabs button[data-tab="${tabId}"]`)?.classList.add('active');
+  $$('.tab').forEach(s=>s.classList.remove('active'));
+  $('#'+tabId)?.classList.add('active');
+}
 function applyModeToUI(){
   $$('#tabs [data-admin]').forEach(el=>{ el.style.display = (currentMode==='admin') ? '' : 'none'; });
-  const activeBtn = $$('#tabs button.active')[0];
-  if(currentMode==='alumno' && activeBtn && activeBtn.hasAttribute('data-admin')){
-    $$('#tabs button').forEach(b=>b.classList.remove('active'));
-    $$('#tabs button[data-tab="attendance"]')[0].classList.add('active');
-    $$('.tab').forEach(s=>s.classList.remove('active'));
-    $('#attendance').classList.add('active');
+  const attendanceBtn = $('#tabs button[data-tab="attendance"]');
+  if(currentMode==='admin'){
+    if(attendanceBtn){ attendanceBtn.style.display='none'; }
+    if($('#attendance').classList.contains('active')){ switchToTab('enrollments'); }
+  } else {
+    if(attendanceBtn){ attendanceBtn.style.display=''; }
+    switchToTab('attendance');
   }
-  $('#form-attendance').style.display = (currentMode==='admin') ? '' : 'none';
-  $('#pin-class').style.display = (currentMode==='admin') ? '' : 'none';
+  $('#form-attendance').style.display = 'none';
   $$('.pin-cell, .only-admin').forEach(td=>{ td.style.display = (currentMode==='admin') ? '' : 'none'; });
   renderAttendanceHead();
 }
@@ -57,6 +65,8 @@ function speak(text){
 function uid(p='id'){return p+'_'+Math.random().toString(36).slice(2,10)}
 function todayISO(){return new Date().toISOString().slice(0,10)}
 function parseISO(d){return d? new Date(d+'T00:00:00') : null}
+function fmtISO(date){ return date.toISOString().slice(0,10); }
+
 function load(){const db={};for(const k of DB){const raw=localStorage.getItem(k);db[k]=raw?JSON.parse(raw):[]}if(db.packages.length===0){db.packages=[
   {package_id:'CLS1', name:'Clase suelta', classes_included:1, valid_days:7, price_mxn:100},
   {package_id:'PCK2', name:'2 clases', classes_included:2, valid_days:30, price_mxn:180},
@@ -78,7 +88,20 @@ function getPinByStudentId(sid){ return db.pins.find(p=>p.student_id===sid) || n
 function setPinForStudent(sid, pin){ const ex=getPinByStudentId(sid); if(ex) ex.pin=pin; else db.pins.push({student_id:sid,pin}); save(db); }
 function isPinInUse(pin){ return !!db.pins.find(p=>p.pin===pin); }
 function generateUniquePin(){ let p; do{ p=Math.floor(Math.random()*10000).toString().padStart(4,'0'); }while(isPinInUse(p)); return p; }
-function copyToClipboard(text){ try{ navigator.clipboard.writeText(text); alert('PIN copiado'); }catch(e){ prompt('Copia el PIN:', text); } }
+async function fileToDataURLResized(file, maxSize=340, quality=0.82){
+  return await new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width,h=img.height;
+      if(w>h){ if(w>maxSize){ h*=maxSize/w; w=maxSize; } } else { if(h>maxSize){ w*=maxSize/h; h=maxSize; } }
+      const c=document.createElement('canvas'); c.width=Math.round(w); c.height=Math.round(h);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      resolve(c.toDataURL('image/jpeg',quality));
+    };
+    img.onerror=reject;
+    img.src=URL.createObjectURL(file);
+  });
+}
 
 $$('#tabs button[data-tab]').forEach(b=>b.addEventListener('click',()=>{
   $$('#tabs button').forEach(x=>x.classList.remove('active'));
@@ -139,9 +162,7 @@ $('#cfg-save').addEventListener('click',()=>{
 let pendingPhotoData = '';
 $('#student-photo')?.addEventListener('change', async (e)=>{
   const f=e.target.files[0]; if(!f) return;
-  const data = await f.arrayBuffer();
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(data)));
-  pendingPhotoData = 'data:'+ (f.type||'image/png') +';base64,'+ base64;
+  try{ pendingPhotoData = await fileToDataURLResized(f, 340, 0.82); }catch(err){ alert('No se pudo procesar la foto'); pendingPhotoData=''; }
 });
 $('#form-student').addEventListener('submit',e=>{
   e.preventDefault();
@@ -155,23 +176,26 @@ function renderStudents(){
   const tb=$('#table-students tbody'); tb.innerHTML='';
   for(const s of db.students){
     const rec=getPinByStudentId(s.student_id); const pin=rec?rec.pin:'—';
+    const photo = s.photo_data ? `<img src="${s.photo_data}" alt="foto" class="tbl-photo" />` : '—';
     const tr=document.createElement('tr');
-    const img = s.photo_data ? `<img src="${s.photo_data}" alt="foto" style="width:42px;height:42px;object-fit:cover;border-radius:8px;border:1px solid #e5e7eb" />` : '—';
     tr.innerHTML=`
-      <td>${img}</td>
+      <td>${photo}</td>
       <td>${s.full_name||''}</td>
       <td>${s.age||''}</td>
       <td>${s.phone||''}</td>
       <td>${[s.emergency_contact_name,s.emergency_contact_phone].filter(Boolean).join(' / ')}</td>
       <td class="pin-cell"><strong>${pin}</strong>
-        <button data-act="setpin" data-id="${s.student_id}">Asignar/Editar</button>
-        <button data-act="genpin" data-id="${s.student_id}">Regenerar</button>
+        <button data-act="setpin" data-id="${s.student_id}">PIN</button>
+        <button data-act="genpin" data-id="${s.student_id}">Auto-PIN</button>
         <button data-act="copypin" data-id="${s.student_id}">Copiar</button>
       </td>
-      <td><button data-act="del" data-id="${s.student_id}">Eliminar</button></td>`;
+      <td>
+        <button data-act="photo" data-id="${s.student_id}">Actualizar foto</button>
+        <button data-act="del" data-id="${s.student_id}" class="danger-outline">Eliminar</button>
+      </td>`;
     tb.appendChild(tr);
   }
-  tb.addEventListener('click',e=>{
+  tb.addEventListener('click',async e=>{
     const btn=e.target.closest('button'); if(!btn) return;
     const sid=btn.dataset.id;
     if(btn.dataset.act==='del'){
@@ -193,10 +217,23 @@ function renderStudents(){
       } else if(p!==null){ alert('PIN inválido'); }
     }
     if(btn.dataset.act==='genpin'){ const p=generateUniquePin(); setPinForStudent(sid,p); alert(`Nuevo PIN: ${p}`); renderAll(); }
-    if(btn.dataset.act==='copypin'){ const p=getPinByStudentId(sid)?.pin; if(p) copyToClipboard(p); else alert('Este alumno aún no tiene PIN'); }
+    if(btn.dataset.act==='copypin'){ const p=getPinByStudentId(sid)?.pin; if(p) { try{ await navigator.clipboard.writeText(p); alert('PIN copiado'); }catch(e){ prompt('Copia el PIN:', p); } } else alert('Este alumno aún no tiene PIN'); }
+    if(btn.dataset.act==='photo'){
+      const input=document.createElement('input'); input.type='file'; input.accept='image/*'; input.capture='environment';
+      input.onchange = async ()=>{
+        const f=input.files[0]; if(!f) return;
+        try{
+          const dataUrl = await fileToDataURLResized(f, 340, 0.82);
+          const stu=db.students.find(x=>x.student_id===sid);
+          if(stu){ stu.photo_data=dataUrl; save(db); renderAll(); }
+        }catch(err){ alert('No se pudo procesar la foto'); }
+      };
+      input.click();
+    }
   },{once:true});
 }
 
+// Enrollments + Reagendar + Pago pendiente auto
 function renderEnrollmentSelectors(){
   const selS=$('#form-enrollment select[name="student_id"]');
   const selP=$('#form-enrollment select[name="package_id"]');
@@ -209,16 +246,25 @@ function deleteEnrollmentCascade(enrollment_id){
   db.enrollments= db.enrollments.filter(e=>e.enrollment_id!==enrollment_id);
   save(db);
 }
+function daysUntil(dateISO){
+  if(!dateISO) return 9999;
+  const today = new Date(todayISO());
+  const end = new Date(dateISO);
+  return Math.floor((end - today) / (1000*60*60*24));
+}
 function renderEnrollmentTable(){
   const tb=$('#table-enrollments tbody'); tb.innerHTML='';
   for(const en of db.enrollments){
     const s=db.students.find(x=>x.student_id===en.student_id);
     const p=db.packages.find(x=>x.package_id===en.package_id);
+    const dLeft = daysUntil(en.end_date);
+    const showRe = (en.status!=='activo') || (en.remaining_classes<=1) || (dLeft<=1);
     const tr=document.createElement('tr');
     tr.innerHTML=`<td>${s?s.full_name:''}</td><td>${p?p.name:en.package_id}</td><td>${en.start_date}</td><td>${en.end_date}</td><td>${en.remaining_classes}</td><td>${en.status}</td><td>
+    <button data-act="re" data-id="${en.enrollment_id}" ${showRe?'':'disabled'}>Reagendar</button>
     <button data-act="pause" data-id="${en.enrollment_id}">${en.status==='pausado'?'Reactivar':'Pausar'}</button>
     <button data-act="close" data-id="${en.enrollment_id}">Cerrar</button>
-    <button data-act="del" data-id="${en.enrollment_id}" style="color:#b91c1c">Eliminar</button></td>`;
+    <button data-act="del" data-id="${en.enrollment_id}" class="danger-outline">Eliminar</button></td>`;
     tb.appendChild(tr);
   }
   tb.addEventListener('click',e=>{
@@ -232,6 +278,23 @@ function renderEnrollmentTable(){
       if(confirm(`¿Eliminar el paquete "${p?p.name:en.package_id}" de ${s?s.full_name:'alumno'}?\nSe borrarán asistencias y pagos ligados a este paquete.`)){
         deleteEnrollmentCascade(id); renderEnrollmentTable();
       }
+      return;
+    }
+    if(btn.dataset.act==='re'){
+      const selS=$('#form-enrollment select[name="student_id"]');
+      const selP=$('#form-enrollment select[name="package_id"]');
+      selS.value = en.student_id;
+      selP.value = en.package_id;
+      const pkg=db.packages.find(p=>p.package_id===selP.value) || {valid_days:30, price_mxn:0};
+      const start = new Date(todayISO());
+      const end = new Date(todayISO()); end.setDate(end.getDate() + (pkg.valid_days||30));
+      $('#form-enrollment input[name="start_date"]').value = fmtISO(start);
+      $('#form-enrollment input[name="end_date"]').value = fmtISO(end);
+      // marcar flag para crear pago pendiente automático con precio del paquete
+      autoPendingPaymentFlag = true;
+      $('#auto-pending').checked = true;
+      switchToTab('enrollments');
+      alert('Formulario prellenado para reagendar. Se creará un pago PENDIENTE automáticamente al asignar.');
     }
   },{once:true});
 }
@@ -252,14 +315,28 @@ $('#form-enrollment').addEventListener('submit',e=>{
   const fd=new FormData(e.target);
   const sid=fd.get('student_id'), pid=fd.get('package_id');
   const sd=fd.get('start_date'), ed=fd.get('end_date');
+  const chkAuto = $('#auto-pending')?.checked;
   if(!sid||!pid||!sd||!ed){ alert('Completa alumno, paquete y fechas'); return; }
   for(const en of db.enrollments){ if(en.student_id===sid && en.status==='activo'){ en.status='vencido'; } }
-  const pkg=db.packages.find(p=>p.package_id===pid);
-  const en={ enrollment_id:uid('enr'), student_id:sid, package_id:pid, start_date:sd, end_date:ed, remaining_classes: pkg.classes_included, status:'activo' };
-  db.enrollments.push(en);
-  const method=fd.get('payment_method'); const status=fd.get('payment_status'); const amount=parseFloat(fd.get('amount_mxn')||'0');
-  if(method||status||amount>0){ db.payments.push({ payment_id:uid('pay'), enrollment_id:en.enrollment_id, student_id:sid, date:todayISO(), amount_mxn:amount||0, method:method||'', status:status||'pendiente', reference:'' }); }
+  const pkg=db.packages.find(p=>p.package_id===pid) || {classes_included:0, price_mxn:0};
+  const enNew={ enrollment_id:uid('enr'), student_id:sid, package_id:pid, start_date:sd, end_date:ed, remaining_classes: pkg.classes_included, status:'activo' };
+  db.enrollments.push(enNew);
+  // Auto crear pago pendiente si viene de "Reagendar" o si el checkbox está encendido
+  if(autoPendingPaymentFlag || chkAuto){
+    db.payments.push({
+      payment_id: uid('pay'),
+      enrollment_id: enNew.enrollment_id,
+      student_id: sid,
+      date: todayISO(),
+      amount_mxn: pkg.price_mxn || 0,
+      method: '',
+      status: 'pendiente',
+      reference: 'auto-reagendado'
+    });
+  }
+  autoPendingPaymentFlag = false;
   save(db); e.target.reset(); renderAll();
+  alert('Paquete asignado / re-agendado con éxito.');
 });
 
 function refreshStatuses(){
@@ -288,37 +365,27 @@ function hasPaidForEnrollment(en){
 
 function renderAttendanceHead(){
   const head=$('#attendance-head');
-  if(currentMode==='admin'){
-    head.innerHTML='<tr><th>Fecha</th><th>Alumno</th><th>Clase/Grupo</th><th>Contó</th><th>Marcó</th></tr>';
-  }else{
-    head.innerHTML='<tr><th>Fecha</th><th>Alumno</th><th>Clase/Grupo</th><th>Asistencia</th></tr>';
-  }
-}
-function renderAttendanceSelectors(){
-  const sel=$('#form-attendance select[name="student_id"]');
-  sel.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('');
+  head.innerHTML='<tr><th>Fecha</th><th>Alumno</th><th>Clase/Grupo</th><th>Asistencia</th></tr>';
 }
 function renderAttendance(){
-  const tb=$('#table-attendance tbody'); tb.innerHTML='';
-  let rows=db.attendance.slice();
-  if(currentMode!=='admin'){
-    const t=todayISO();
-    rows=rows.filter(a=>a.date===t);
+  const tb=$('#table-attendance tbody'); if(!tb) return; tb.innerHTML='';
+  const t=todayISO();
+  let rows=db.attendance.filter(a=>a.date===t);
+  if(lastKioskStudentId){
+    rows = rows.filter(a=>a.student_id===lastKioskStudentId);
+  } else {
+    rows = [];
   }
-  rows.sort((a,b)=>b.date.localeCompare(a.date));
   for(const at of rows){
     const s=db.students.find(x=>x.student_id===at.student_id);
     const tr=document.createElement('tr');
-    if(currentMode==='admin'){
-      tr.innerHTML=`<td>${at.date}</td><td>${s?s.full_name:''}</td><td>${at.class_name_or_group||''}</td><td>${at.was_counted}</td><td>${at.marked_by}</td>`;
-    }else{
-      const asistencia = (at.was_counted==='yes' || at.was_counted===true) ? 'Sí' : 'No';
-      tr.innerHTML=`<td>${at.date}</td><td>${s?s.full_name:''}</td><td>${at.class_name_or_group||''}</td><td>${asistencia}</td>`;
-    }
+    tr.innerHTML=`<td>${at.date}</td><td>${s?s.full_name:''}</td><td>${at.class_name_or_group||''}</td><td>Sí</td>`;
     tb.appendChild(tr);
   }
 }
 function showKioskProfile(sid){
+  lastKioskStudentId = sid;
+  renderAttendance();
   const box = $('#kiosk-profile');
   const s = db.students.find(x=>x.student_id===sid);
   let en = getActiveEnrollment(sid); if(!en) en=getLatestEnrollment(sid);
@@ -327,42 +394,40 @@ function showKioskProfile(sid){
   box.innerHTML = `${img}<div class="info"><div class="name">${s? s.full_name : ''}</div><div class="meta">Restantes: ${rest}</div><div class="meta">Hoy: ${todayISO()}</div></div>`;
   box.style.display = 'flex';
   if(kioskClearTimer) clearTimeout(kioskClearTimer);
-  kioskClearTimer = setTimeout(clearKioskProfile, 12000);
+  kioskClearTimer = setTimeout(clearKioskView, 12000);
 }
-function clearKioskProfile(){
-  const box = $('#kiosk-profile');
-  box.innerHTML=''; box.style.display='none';
+function clearKioskView(){
+  lastKioskStudentId = null;
+  const box = $('#kiosk-profile'); box.innerHTML=''; box.style.display='none';
+  renderAttendance();
 }
-function markAttendanceFor(sid, cls, by='admin'){
+function markAttendanceFor(sid, by='pin'){
   const s=db.students.find(x=>x.student_id===sid); if(!s){ alert('Alumno no encontrado'); speak(config.voice_deny); return; }
   let en=getActiveEnrollment(sid); if(!en) en=getLatestEnrollment(sid);
   if(!en){ alert(`Sin paquete activo para ${s.full_name}`); speak(config.voice_deny); return; }
-  if(currentMode==='alumno' && !hasPaidForEnrollment(en)){ alert(`Acceso denegado: pago pendiente de ${s.full_name}.`); speak(config.voice_deny); return; }
-  const countable=true;
-  if(countable && en.remaining_classes<=0){ alert(`${s.full_name} no tiene clases restantes.`); speak(config.voice_deny); return; }
-  db.attendance.push({ attendance_id:uid('att'), enrollment_id:en.enrollment_id, student_id:sid, date:todayISO(), class_name_or_group:cls||'', marked_by:by, was_counted:countable?'yes':'no' });
-  if(countable){
-    en.remaining_classes -= 1;
-    if(en.remaining_classes===1){ alert(`Aviso: a ${s.full_name} le queda 1 clase.`); }
-  }
-  save(db); renderAll(); speak(config.voice_ok);
-  if(currentMode==='alumno'){ showKioskProfile(sid); }
+  if(!hasPaidForEnrollment(en)){ alert(`Acceso denegado: pago pendiente de ${s.full_name}.`); speak(config.voice_deny); return; }
+  if(en.remaining_classes<=0){ alert(`${s.full_name} no tiene clases restantes.`); speak(config.voice_deny); return; }
+  db.attendance.push({ attendance_id:uid('att'), enrollment_id:en.enrollment_id, student_id:sid, date:todayISO(), class_name_or_group:config.default_class||'', marked_by:by, was_counted:'yes' });
+  en.remaining_classes -= 1;
+  if(en.remaining_classes===1){ alert(`Aviso: a ${s.full_name} le queda 1 clase.`); }
+  save(db);
+  speak(config.voice_ok);
+  showKioskProfile(sid);
+  renderReports(); renderDashboard();
 }
-$('#form-attendance').addEventListener('submit',e=>{
-  e.preventDefault(); const fd=new FormData(e.target);
-  markAttendanceFor(fd.get('student_id'), fd.get('class_name_or_group')||'', 'admin'); e.target.reset();
-});
 $('#form-pin').addEventListener('submit',e=>{
   e.preventDefault(); const fd=new FormData(e.target);
   const pin=(fd.get('pin')||'').trim();
   const rec=db.pins.find(p=>p.pin===pin); if(!rec){ alert('PIN incorrecto'); speak(config.voice_deny); return; }
-  const cls = (currentMode==='admin') ? (fd.get('class_name_or_group')||'') : (config.default_class || '');
-  markAttendanceFor(rec.student_id, cls, 'pin'); e.target.reset();
+  markAttendanceFor(rec.student_id, 'pin'); e.target.reset();
 });
-$('#form-pin input[name="pin"]').addEventListener('input', ()=>{ clearKioskProfile(); });
+$('#form-pin input[name="pin"]').addEventListener('input', ()=>{
+  if(kioskClearTimer) clearTimeout(kioskClearTimer);
+  clearKioskView();
+});
 
 function renderPayments(){
-  const tb=$('#table-payments tbody'); tb.innerHTML='';
+  const tb=$('#table-payments tbody'); if(!tb) return; tb.innerHTML='';
   const rows=db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date));
   for(const p of rows){
     const s=db.students.find(x=>x.student_id===p.student_id);
@@ -371,80 +436,46 @@ function renderPayments(){
     tb.appendChild(tr);
   }
 }
-
-$('#form-event').addEventListener('submit',e=>{
-  e.preventDefault(); const fd=new FormData(e.target);
-  const ev=Object.fromEntries(fd.entries()); ev.event_id=uid('evt'); db.events.push(ev); save(db); e.target.reset(); renderAll();
-});
+function sumBy(a,f){return a.reduce((x,y)=>x+(+f(y)||0),0)}
+function groupBy(a,k){return a.reduce((acc,x)=>{const key=k(x);(acc[key]??=[]).push(x);return acc},{})}
 function renderEvents(){
-  const tb=$('#table-events tbody'); tb.innerHTML='';
-  const rows=db.events.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  const tb=$('#table-events tbody'); if(!tb) return; tb.innerHTML='';
+  const rows=(db.events||[]).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   for(const ev of rows){
     const tr=document.createElement('tr');
     tr.innerHTML=`<td>${ev.date||''} ${ev.start_time||''}</td><td>${ev.title||''}</td><td>${ev.type||''}</td><td>${ev.location||''}</td><td><button data-act="notify" data-id="${ev.event_id}">Notificar</button> <button data-act="del" data-id="${ev.event_id}">Eliminar</button></td>`;
     tb.appendChild(tr);
   }
-  tb.addEventListener('click',e=>{
-    const btn=e.target.closest('button'); if(!btn) return;
-    const id=btn.dataset.id; const ev=db.events.find(x=>x.event_id===id);
-    if(btn.dataset.act==='del'){ if(confirm('¿Eliminar evento?')){ db.events=db.events.filter(x=>x.event_id!==id); save(db); renderAll(); } }
-    else if(btn.dataset.act==='notify'){ alert(`Notificación simulada: "${ev.title}" el ${ev.date} ${ev.start_time||''}`); }
-  },{once:true});
 }
-function sumBy(a,f){return a.reduce((x,y)=>x+(+f(y)||0),0)}
-function groupBy(a,k){return a.reduce((acc,x)=>{const key=k(x);(acc[key]??=[]).push(x);return acc},{})}
 function renderReports(){
   const n=new Date(); const ym=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
   const att=db.attendance.filter(a=>(a.date||'').startsWith(ym));
-  $('#r-attendance-month').textContent=`${att.length} asistencias`;
   const pay=db.payments.filter(p=>(p.date||'').startsWith(ym)&&p.status==='pagado');
-  $('#r-income-month').textContent=`$ ${sumBy(pay,x=>x.amount_mxn).toFixed(2)} MXN`;
   const sold=db.enrollments.filter(en=>(en.start_date||'').startsWith(ym));
   const g=groupBy(sold,en=>en.package_id);
-  const ul=$('#r-top-packages'); ul.innerHTML='';
-  Object.entries(g).sort((a,b)=>b[1].length-a[1].length).forEach(([id,list])=>{
+  $('#r-attendance-month')?.textContent=`${att.length} asistencias`;
+  $('#r-income-month')?.textContent=`$ ${sumBy(pay,x=>x.amount_mxn).toFixed(2)} MXN`;
+  const ul=$('#r-top-packages'); if(ul){ ul.innerHTML=''; Object.entries(g).sort((a,b)=>b[1].length-a[1].length).forEach(([id,list])=>{
     const pkg=db.packages.find(p=>p.package_id===id);
     const li=document.createElement('li'); li.textContent=`${pkg?pkg.name:id}: ${list.length}`; ul.appendChild(li);
-  });
+  });}
 }
 function renderDashboard(){
   const t=todayISO();
-  $('#attendances-today').textContent=db.attendance.filter(a=>a.date===t).length;
-  $('#payments-due').textContent=db.payments.filter(p=>(p.status||'')==='pendiente').length;
+  $('#attendances-today')?.textContent=db.attendance.filter(a=>a.date===t).length;
+  $('#payments-due')?.textContent=db.payments.filter(p=>(p.status||'')==='pendiente').length;
   const next7=new Date(); next7.setDate(next7.getDate()+7);
   const exp=db.enrollments.filter(en=>{ if(en.status!=='activo'||!en.end_date) return false; const ed=new Date(en.end_date); const td=new Date(t); return ed>=td&&ed<=next7; }).length;
-  $('#expiring-packages').textContent=exp;
-  const up=db.events.filter(ev=>{ if(!ev.date) return false; const d=new Date(ev.date); const td=new Date(t); const n7=new Date(td); n7.setDate(n7.getDate()+7); return d>=td&&d<=n7; }).length;
-  $('#upcoming-events').textContent=up;
+  $('#expiring-packages')?.textContent=exp;
+  const up=(db.events||[]).filter(ev=>{ if(!ev.date) return false; const d=new Date(ev.date); const td=new Date(t); const n7=new Date(td); n7.setDate(n7.getDate()+7); return d>=td&&d<=n7; }).length;
+  $('#upcoming-events')?.textContent=up;
 }
-
-$('#form-panel-login').addEventListener('submit',e=>{
-  e.preventDefault();
-  const pin=(new FormData(e.target).get('pin')||'').trim();
-  const rec=db.pins.find(p=>p.pin===pin);
-  if(!rec){ alert('PIN incorrecto'); return; }
-  const sid=rec.student_id;
-  const s=db.students.find(x=>x.student_id===sid);
-  let en=getActiveEnrollment(sid);
-  if(!en) en=getLatestEnrollment(sid);
-  $('#pv-name').textContent=s?s.full_name:'(Alumno)';
-  const remaining=(en?(en.remaining_classes ?? en.remaining ?? 0):'0');
-  $('#pv-remaining').textContent=remaining;
-  $('#pv-ends').textContent=en?(en.end_date||'-'):'-';
-  const td=new Date(todayISO()); const n30=new Date(td); n30.setDate(n30.getDate()+30);
-  const ul=$('#pv-events'); ul.innerHTML='';
-  db.events.filter(ev=>ev.date&&new Date(ev.date)>=td&&new Date(ev.date)<=n30)
-           .sort((a,b)=>(a.date||'').localeCompare(b.date||''))
-           .slice(0,8).forEach(ev=>{ const li=document.createElement('li'); li.textContent=`${ev.date} ${ev.start_time||''} — ${ev.title}`; ul.appendChild(li); });
-  $('#panel-login').style.display='none'; $('#panel-view').style.display='block';
-});
-$('#pv-logout').addEventListener('click',()=>{ $('#panel-login').style.display='block'; $('#panel-view').style.display='none'; });
 
 function renderAll(){
   refreshStatuses();
   try{ renderStudents(); }catch(e){}
   try{ renderEnrollmentSelectors(); renderEnrollmentTable(); }catch(e){}
-  try{ renderAttendanceHead(); renderAttendanceSelectors(); renderAttendance(); }catch(e){}
+  try{ renderAttendanceHead(); renderAttendance(); }catch(e){}
   try{ renderPayments(); }catch(e){}
   try{ renderEvents(); }catch(e){}
   try{ renderReports(); renderDashboard(); }catch(e){}
