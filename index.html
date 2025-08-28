@@ -1,220 +1,169 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
-  <title>ADNH • Accesos</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css">
-  <meta name="theme-color" content="#111111">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>Academia NH v2</title>
+  <link rel="stylesheet" href="styles.css?v=3" />
 </head>
 <body>
   <header>
-    <h1>Academia de Danza NH</h1>
-    <p class="subtitle">App renovada — iPad & Android</p>
+    <div class="brand">
+      <img src="icons/icon-192.png" alt="Logo" />
+      <h1 id="brand-title">Academia NH v2</h1>
+    </div>
+    <nav id="tabs">
+      <button data-tab="kiosk" class="active">Asistencias</button>
+      <button data-tab="students" data-admin>Alumnos</button>
+      <button data-tab="payments" data-admin>Pagos</button>
+      <button data-tab="reports" data-admin>Reportes</button>
+      <button data-tab="config" data-admin>Config</button>
+      <span class="spacer"></span>
+      <select id="mode-switch" title="Modo">
+        <option value="alumno">Modo Alumno</option>
+        <option value="admin">Modo Admin</option>
+      </select>
+    </nav>
   </header>
 
-  <main id="view-home" class="view active" role="main">
-    <div class="mode-picker">
-      <button id="go-alumno" class="primary">Alumno</button>
-      <button id="go-admin" class="secondary">Administrador</button>
-    </div>
-    <p class="note">Instalable y sin internet. iPad y tablet Android.</p>
-  </main>
-
-  <!-- Alumno -->
-  <main id="view-alumno" class="view" aria-live="polite">
-    <button class="back" data-back>← Inicio</button>
-    <h2>Acceso de Alumno</h2>
-    <div class="pin-box" aria-label="PIN 4 dígitos">
-      <input id="pin-1" inputmode="numeric" maxlength="1" pattern="[0-9]*" autocomplete="one-time-code">
-      <input id="pin-2" inputmode="numeric" maxlength="1" pattern="[0-9]*">
-      <input id="pin-3" inputmode="numeric" maxlength="1" pattern="[0-9]*">
-      <input id="pin-4" inputmode="numeric" maxlength="1" pattern="[0-9]*">
-    </div>
-    <div class="keypad">
-      <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button>
-      <button data-key="4">4</button><button data-key="5">5</button><button data-key="6">6</button>
-      <button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button>
-      <button data-key="del">⌫</button><button data-key="0">0</button><button data-key="ok">OK</button>
-    </div>
-
-    <div id="alumno-panel" class="alumno-panel">
-      <img id="alumno-foto" alt="Foto" />
-      <div class="alumno-info">
-        <div id="alumno-nombre" class="alumno-nombre"></div>
-        <div id="alumno-paquete" class="alumno-paquete muted"></div>
+  <main>
+    <section id="kiosk" class="tab active">
+      <h2>Marcaje por PIN (Alumno)</h2>
+      <div class="pin-box">
+        <form id="form-pin" class="form-inline">
+          <input name="pin" inputmode="numeric" maxlength="4" pattern="\d{4}" placeholder="PIN ••••" required />
+          <button>Marcar</button>
+        </form>
+        <div id="kiosk-profile" class="kiosk-profile" aria-live="polite"></div>
       </div>
-    </div>
-
-    <div id="alumno-msg" class="msg" aria-live="assertive"></div>
-  </main>
-
-  <!-- Admin PIN -->
-  <main id="view-admin-pin" class="view">
-    <button class="back" data-back>← Inicio</button>
-    <h2>Administrador</h2>
-    <p>Ingresa PIN</p>
-    <div class="pin-box">
-      <input id="apin-1" inputmode="numeric" maxlength="1" pattern="[0-9]*">
-      <input id="apin-2" inputmode="numeric" maxlength="1" pattern="[0-9]*">
-      <input id="apin-3" inputmode="numeric" maxlength="1" pattern="[0-9]*">
-      <input id="apin-4" inputmode="numeric" maxlength="1" pattern="[0-9]*">
-    </div>
-    <div class="keypad">
-      <button data-apkey="1">1</button><button data-apkey="2">2</button><button data-apkey="3">3</button>
-      <button data-apkey="4">4</button><button data-apkey="5">5</button><button data-apkey="6">6</button>
-      <button data-apkey="7">7</button><button data-apkey="8">8</button><button data-apkey="9">9</button>
-      <button data-apkey="del">⌫</button><button data-apkey="0">0</button><button data-apkey="ok">OK</button>
-    </div>
-    <div id="admin-pin-msg" class="msg"></div>
-  </main>
-
-  <!-- Admin -->
-  <main id="view-admin" class="view">
-    <button class="back" data-back>← Inicio</button>
-    <h2>Panel</h2>
-
-    <section id="admin-alerts" class="alerts" aria-live="polite"></section>
-
-    <section class="toolbar">
-      <button id="btn-add" class="primary">Añadir alumno</button>
-      <button id="btn-export">Exportar</button>
-      <label class="import-label">Importar <input id="file-import" type="file" accept="application/json"></label>
-      <button id="btn-reset" class="danger">Reiniciar</button>
+      <div class="table-wrap">
+        <table id="table-attendance">
+          <thead><tr><th>Fecha</th><th>Alumno</th><th>Grupo</th><th>Asistencia</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
 
-    <section class="admin-settings">
-      <details>
-        <summary>Ajustes</summary>
-        <label>PIN de administrador
-          <input id="admin-pin-input" type="password" inputmode="numeric" maxlength="4" placeholder="0000">
-        </label>
-        <button id="btn-save-admin-pin">Guardar PIN</button>
+    <section id="students" class="tab">
+      <h2>Alumnos</h2>
+      <form id="form-student" class="form-grid">
+        <input name="full_name" placeholder="Nombre completo" required />
+        <input name="phone" placeholder="Teléfono" />
+        <label class="file-uploader"><span>Foto</span><input id="student-photo" type="file" accept="image/*" capture="environment" /></label>
+        <select name="classes" id="student-classes" required>
+          <option value="">Paquete (clases)</option>
+        </select>
+        <input name="amount_mxn" id="student-amount" type="number" placeholder="Monto MXN" min="0" step="0.01" required />
+        <select name="payment_status" required>
+          <option value="">Estado de pago</option>
+          <option value="pagado">Pagado</option>
+          <option value="pendiente">Pendiente</option>
+        </select>
+        <button>+ Agregar alumno</button>
+      </form>
 
-        <label>Voz (español claro)
-          <span class="row">
-            <input id="voice-enabled" type="checkbox" checked> Activar voz
-            <select id="voice-select" title="Voz preferida"></select>
-            <button id="btn-test-voice" type="button">Probar voz</button>
-            <span id="voice-status" class="muted"></span>
-          </span>
-        </label>
-      </details>
-    </section>
-
-    <section id="students-list">
-      <h3>Alumnos</h3>
-      <div id="students"></div>
-    </section>
-  </main>
-
-  <!-- Dialog Alumno/Profile -->
-  <dialog id="dlg-student">
-    <form method="dialog" id="form-student">
-      <h3 id="dlg-title">Alumno</h3>
-      <label>Nombre completo<input name="name" required></label>
-      <label>PIN (4 dígitos)<input name="pin" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required></label>
-      <label>Teléfono<input name="phone"></label>
-      <label>Emergencia<input name="emergency"></label>
-      <label>Nacimiento<input name="birthdate" type="date"></label>
-      <label>Dirección<textarea name="address" rows="2"></textarea></label>
-      <label>Forma de pago<select name="payment">
-        <option value="">—</option><option>Efectivo</option><option>Transferencia</option>
-      </select></label>
-
-      <fieldset>
-        <legend>Paquete</legend>
-        <label>Tipo
-          <select name="pkgType" required>
-            <option value="suelta">Clase suelta</option>
-            <option value="dos">2 clases</option>
-            <option value="cuatro">4 clases</option>
-            <option value="seis">6 clases</option>
-            <option value="ocho">8 clases</option>
-            <option value="diez">10 clases</option>
-            <option value="doce">12 clases</option>
-            <option value="mes">Mes completo</option>
-          </select>
-        </label>
-        <label>Inicio<input name="startDate" type="date" required></label>
-        <label>Fin<input name="endDate" type="date" required></label>
-        <label>Clases restantes<input name="remaining" type="number" min="0" step="1"></label>
-      </fieldset>
-
-      <div class="photo-row">
-        <img id="photo-preview" alt="Foto" />
-        <input id="photo-input" type="file" accept="image/*" capture="environment">
-        <button id="btn-photo" type="button">Tomar/Actualizar foto</button>
+      <div class="table-wrap">
+        <table id="table-students">
+          <thead><tr><th>Foto</th><th>Nombre</th><th>Teléfono</th><th>Paquete</th><th>Restantes</th><th>Fin</th><th>Acciones</th></tr></thead>
+          <tbody></tbody>
+        </table>
       </div>
 
-      <menu>
-        <button value="cancel">Cancelar</button>
-        <button id="btn-save-student" value="save" class="primary">Guardar</button>
-      </menu>
-    </form>
-  </dialog>
+      <div id="student-profile" class="card" style="display:none">
+        <h3 id="sp-name"></h3>
+        <div class="grid-2">
+          <div>
+            <img id="sp-photo" class="profile-photo" alt="Foto" />
+            <button id="sp-photo-btn">Actualizar foto</button>
+          </div>
+          <div>
+            <label>Nombre <input id="sp-full_name"/></label>
+            <label>Teléfono <input id="sp-phone"/></label>
+            <label>Clases del paquete <select id="sp-classes"></select></label>
+            <label>Monto MXN <input id="sp-amount" type="number" min="0" step="0.01"/></label>
+            <label>Pago <select id="sp-payment">
+              <option value="pagado">Pagado</option>
+              <option value="pendiente">Pendiente</option>
+            </select></label>
+            <label>Fin <input id="sp-end" type="date"/></label>
+            <div class="form-inline">
+              <button id="sp-save">Guardar cambios</button>
+              <button id="sp-reagenda" class="accent">Reagendar</button>
+              <button id="sp-close" class="danger-outline">Cerrar paquete</button>
+            </div>
+          </div>
+        </div>
 
-  <!-- Dialog Reagendar (requiere pago) -->
-  <dialog id="dlg-resched">
-    <form method="dialog" id="form-resched">
-      <h3>Reagendar paquete</h3>
-      <p class="muted" id="resched-note">Requiere registrar el nuevo pago si es renovación.</p>
-      <label>Tipo
-        <select name="pkgType" required>
-          <option value="suelta">Clase suelta</option>
-          <option value="dos">2 clases</option>
-          <option value="cuatro">4 clases</option>
-          <option value="seis">6 clases</option>
-          <option value="ocho">8 clases</option>
-          <option value="diez">10 clases</option>
-          <option value="doce">12 clases</option>
-          <option value="mes">Mes completo</option>
-        </select>
-      </label>
-      <label>Inicio<input name="startDate" type="date" required></label>
-      <label>Fin<input name="endDate" type="date" required></label>
-      <label>Clases restantes<input name="remaining" type="number" min="0" step="1"></label>
-      <menu>
-        <button value="cancel">Cancelar</button>
-        <button id="btn-resched-save" value="save" class="primary">Guardar</button>
-      </menu>
-    </form>
-  </dialog>
+        <h4>Historial de pagos</h4>
+        <div class="table-wrap">
+          <table id="table-sp-payments">
+            <thead><tr><th>Fecha</th><th>Monto</th><th>Método</th><th>Estado</th><th>Ref</th><th>Acción</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
 
-  <footer><small>ADNH • App renovada • v1.0</small></footer>
-  <script src="app.js"></script>
+    <section id="payments" class="tab">
+      <h2>Pagos</h2>
+      <form id="form-payment" class="form-inline">
+        <select name="student_id" required></select>
+        <input name="amount_mxn" type="number" min="0" step="0.01" placeholder="Monto MXN" required/>
+        <select name="method"><option value="">Método</option><option>efectivo</option><option>transferencia</option></select>
+        <select name="status"><option value="">Estado</option><option value="pagado">Pagado</option><option value="pendiente">Pendiente</option></select>
+        <input name="reference" placeholder="Referencia"/>
+        <button>Registrar pago</button>
+      </form>
+      <div class="table-wrap">
+        <table id="table-payments">
+          <thead><tr><th>Fecha</th><th>Alumno</th><th>Método</th><th>Monto</th><th>Estado</th><th>Ref</th><th>Acción</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
 
-  <!-- Dialog Payments (list) -->
-  <dialog id="dlg-payments">
-    <form method="dialog" id="form-payments">
-      <h3>Pagos del alumno</h3>
-      <div id="payments-table" class="payments-table"></div>
-      <menu>
-        <button id="btn-add-payment" type="button" class="primary">Registrar pago</button>
-        <button value="close">Cerrar</button>
-      </menu>
-    </form>
-  </dialog>
+    <section id="reports" class="tab">
+      <h2>Reportes</h2>
+      <div class="grid">
+        <div class="card"><h3>Asistencias (mes)</h3><p id="r-att-month">0</p></div>
+        <div class="card"><h3>Ingresos (mes)</h3><p id="r-income-month">$0.00</p></div>
+      </div>
+    </section>
 
-  <!-- Dialog New Payment -->
-  <dialog id="dlg-payment">
-    <form method="dialog" id="form-payment">
-      <h3>Registrar pago</h3>
-      <label>Monto <input name="amount" type="number" min="0" step="1" required></label>
-      <label>Método
-        <select name="method" required>
-          <option value="Efectivo">Efectivo</option>
-          <option value="Transferencia">Transferencia</option>
-        </select>
-      </label>
-      <label>Nota <input name="note" placeholder="Opcional"></label>
-      <menu>
-        <button value="cancel">Cancelar</button>
-        <button id="btn-save-payment" value="save" class="primary">Guardar</button>
-      </menu>
-    </form>
-  </dialog>
+    <section id="config" class="tab">
+      <h2>Configuración</h2>
+      <div class="form-grid">
+        <input id="cfg-brand" placeholder="Nombre academia" value="Academia NH v2"/>
+        <input id="cfg-admin-pin" placeholder="PIN Admin (4 dígitos)" maxlength="4" inputmode="numeric"/>
+        <input id="cfg-voice-ok" placeholder='Voz OK' value="Acceso otorgado"/>
+        <input id="cfg-voice-deny" placeholder='Voz NO' value="Acceso denegado"/>
+        <button id="cfg-save">Guardar</button>
+        <button id="cfg-clear" class="danger-outline">Borrar caché</button>
+      </div>
+    </section>
+  </main>
 
+  <footer><small>PWA localStorage • Compatible iPad • Sin internet para voz.</small></footer>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js?v=3'); });
+    }
+    (async()=>{
+      const params=new URLSearchParams(location.search);
+      if(params.get('clear')==='1'){
+        try{
+          if('caches' in window){ const keys=await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); }
+          if('serviceWorker' in navigator){ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); }
+        }catch(e){}
+        setTimeout(()=>location.replace(location.pathname+'?v=clean3'),300);
+      }
+    })();
+  </script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

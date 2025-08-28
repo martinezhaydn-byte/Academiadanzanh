@@ -1,344 +1,334 @@
-// ===== IndexedDB =====
-const DB_NAME='adnh-renovada-db'; const DB_VERSION=1;
-let db;
-const openDB=()=>new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VERSION);
-  r.onupgradeneeded=(e)=>{const d=e.target.result;
-    if(!d.objectStoreNames.contains('students')){const s=d.createObjectStore('students',{keyPath:'id',autoIncrement:true}); s.createIndex('pin','pin',{unique:true});}
-    if(!d.objectStoreNames.contains('meta')){d.createObjectStore('meta',{keyPath:'key'});}
-    if(!d.objectStoreNames.contains('attendance')){const a=d.createObjectStore('attendance',{keyPath:'id',autoIncrement:true}); a.createIndex('byStudent','studentId',{unique:false});}
+(function(){
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
+const DB=['students','enrollments','attendance','payments','pins'];
+const CFG_KEY='cfg_v2';
+
+function cfgLoad(){
+  const c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
+  return {
+    brand: c.brand || 'Academia NH v2',
+    admin_pin: c.admin_pin || '1234',
+    voice_ok: c.voice_ok || 'Acceso otorgado',
+    voice_deny: c.voice_deny || 'Acceso denegado'
   };
-  r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+}
+function cfgSave(c){ localStorage.setItem(CFG_KEY, JSON.stringify(c)); }
+let cfg = cfgLoad();
+document.title = cfg.brand;
+$('#brand-title').textContent = cfg.brand;
+
+let mode = 'alumno';
+let kioskTimer = null;
+let currentKioskStudentId = null;
+
+const PACKS = Array.from({length:12}, (_,i)=>{
+  const n=i+1; return {id:'P'+n, name:`${n} clase${n>1?'s':''}`, classes:n, price: n*90};
 });
-async function tx(names,mode='readonly'){ if(!db) db=await openDB(); const t=db.transaction(names,mode); return {tx:t, stores:names.map(n=>t.objectStore(n))}; }
 
-// ===== Meta helpers =====
-async function getAdminPin(){ const {stores:[m]}=await tx(['meta']); return await new Promise(res=>{const r=m.get('adminPin'); r.onsuccess=()=>res(r.result?r.result.value:'0000'); r.onerror=()=>res('0000');});}
-async function setAdminPin(v){ const {tx:t,stores:[m]}=await tx(['meta'],'readwrite'); await m.put({key:'adminPin',value:v}); return new Promise(res=>t.oncomplete=()=>res(true)); }
-async function getVoiceEnabled(){ const {stores:[m]}=await tx(['meta']); return await new Promise(res=>{const r=m.get('voiceEnabled'); r.onsuccess=()=>res(r.result?!!r.result.value:true); r.onerror=()=>res(true);});}
-async function setVoiceEnabled(v){ const {tx:t,stores:[m]}=await tx(['meta'],'readwrite'); await m.put({key:'voiceEnabled',value:!!v}); return new Promise(res=>t.oncomplete=()=>res(true)); }
-async function getVoiceChoice(){ const {stores:[m]} = await tx(['meta']); return await new Promise(res=>{ const r=m.get('voiceChoice'); r.onsuccess=()=>res(r.result?r.result.value:null); r.onerror=()=>res(null); }); }
-async function setVoiceChoice(id){ const {tx:t,stores:[m]} = await tx(['meta'],'readwrite'); await m.put({key:'voiceChoice', value:id}); return new Promise(res=>t.oncomplete=()=>res(true)); }
-
-// ===== Students =====
-async function addOrUpdateStudent(s){ const {tx:t,stores:[st]}=await tx(['students'],'readwrite'); await st.put(s); return new Promise(res=>t.oncomplete=()=>res(true)); }
-async function deleteStudent(id){ const {tx:t,stores:[st]}=await tx(['students'],'readwrite'); st.delete(id); return new Promise(res=>t.oncomplete=()=>res(true)); }
-async function getStudentByPin(pin){ const {stores:[st]}=await tx(['students']); return await new Promise(res=>{const r=st.index('pin').get(pin); r.onsuccess=()=>res(r.result||null); r.onerror=()=>res(null);});}
-async function getAllStudents(){ const {stores:[st]}=await tx(['students']); return await new Promise(res=>{const list=[]; const c=st.openCursor(); c.onsuccess=(e)=>{const cur=e.target.result; if(cur){list.push(cur.value); cur.continue();} else res(list);};});}
-
-// ===== Attendance =====
-async function logAttendance(studentId){ const {tx:t,stores:[att]}=await tx(['attendance'],'readwrite'); await att.add({studentId, ts:new Date().toISOString()}); return new Promise(res=>t.oncomplete=()=>res(true)); }
-
-// ===== Utils =====
-function pkgDefaultRemaining(type){ switch(type){ case 'suelta':return 1; case 'dos':return 2; case 'cuatro':return 4; case 'seis':return 6; case 'ocho':return 8; case 'diez':return 10; case 'doce':return 12; case 'mes':return 0; default:return 0; } }
-function todayISO(){ const d=new Date(); const z=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())); return z.toISOString().slice(0,10); }
-function formatDate(d){ return new Date(d).toLocaleDateString(); }
-
-// ===== Voice (Spanish clear) =====
-function defaultSpanishVoice(list){
-  // Prefer es-ES (claro), then any es-*, then es-419, then es-MX
-  let v=list.find(x=>/es\-ES/i.test(x.lang||'') || /Spain/i.test(x.name||''));
-  if(!v) v=list.find(x=>/^es/i.test(x.lang||''));
-  if(!v) v=list.find(x=>/es\-419/i.test(x.lang||''));
-  if(!v) v=list.find(x=>/es\-MX/i.test(x.lang||''));
-  return v || list[0];
-}
-async function pickPreferredVoice(){
-  if(!('speechSynthesis' in window)) return null;
-  const list=speechSynthesis.getVoices()||[]; if(!list.length) return null;
-  const choice=await getVoiceChoice();
-  if(choice){ const chosen=list.find(x=>(x.name+'|'+(x.lang||'')).toLowerCase()===choice.toLowerCase()); if(chosen) return chosen; }
-  return defaultSpanishVoice(list);
-}
-async function speak(text){
+function speakEs(text){
   try{
-    const enabled = await getVoiceEnabled();
-    if(!enabled || !('speechSynthesis' in window)) return;
-    const u=new SpeechSynthesisUtterance(text);
-    const v=await pickPreferredVoice(); if(v) u.voice=v;
-    u.rate=1; u.pitch=1; u.volume=1;
-    speechSynthesis.cancel(); speechSynthesis.speak(u);
-  }catch(_){}
+    const u = new SpeechSynthesisUtterance(text);
+    const voices = speechSynthesis.getVoices();
+    const es = voices.find(v => /es-|Spanish|español/i.test((v.lang||'') + v.name));
+    if(es) u.voice = es;
+    u.rate = 1;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  }catch(e){}
 }
-function updateVoiceStatus(){
-  const el=document.getElementById('voice-status'); if(!el) return;
-  if(!('speechSynthesis' in window)){ el.textContent='(voz no soportada)'; return; }
-  const list=speechSynthesis.getVoices()||[]; const v=list.length? defaultSpanishVoice(list): null;
-  el.textContent = list.length ? `Voces: ${list.length} • Predeterminada: ${v ? v.name+' ('+v.lang+')' : '—'}` : 'Cargando voces…';
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function uid(p='id'){ return p+'_'+Math.random().toString(36).slice(2,10); }
+function load(){const db={};for(const k of DB){db[k]=JSON.parse(localStorage.getItem(k)||'[]')}return db}
+function save(db){for(const k of DB){localStorage.setItem(k,JSON.stringify(db[k]||[]))}}
+const db = load();
+
+function getPinByStudentId(sid){ return db.pins.find(p=>p.student_id===sid)?.pin || null; }
+function setPinForStudent(sid, pin){
+  const found=db.pins.find(p=>p.student_id===sid);
+  if(found) found.pin=pin; else db.pins.push({student_id:sid,pin});
+  save(db);
 }
-function populateVoiceSelect(){
-  const sel=document.getElementById('voice-select'); if(!sel) return;
-  sel.innerHTML='';
-  if(!('speechSynthesis' in window)){ sel.disabled=true; return; }
-  const list=speechSynthesis.getVoices()||[];
-  for(const v of list){
-    const opt=document.createElement('option'); opt.value=v.name+'|'+(v.lang||''); opt.textContent=`${v.name} (${v.lang||'?'})`; sel.appendChild(opt);
-  }
-  getVoiceChoice().then(async saved=>{
-    let target=saved;
-    if(!target && list.length){ const dv=defaultSpanishVoice(list); target=dv? dv.name+'|'+(dv.lang||''): null; if(target) await setVoiceChoice(target); }
-    if(target){ const i=Array.from(sel.options).findIndex(o=>o.value.toLowerCase()===target.toLowerCase()); if(i>=0) sel.selectedIndex=i; }
-    updateVoiceStatus();
+function isPinInUse(pin, exceptSid=null){ return !!db.pins.find(p=>p.pin===pin && p.student_id!==exceptSid); }
+function generatePin(){ let p; do{ p=Math.floor(Math.random()*10000).toString().padStart(4,'0'); }while(isPinInUse(p)); return p; }
+
+async function fileToDataURLResized(file, maxSize=360, quality=0.85){
+  return await new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width,h=img.height;
+      if(w>h){ if(w>maxSize){ h*=maxSize/w; w=maxSize; } } else { if(h>maxSize){ w*=maxSize/h; h=maxSize; } }
+      const c=document.createElement('canvas'); c.width=Math.round(w); c.height=Math.round(h);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      resolve(c.toDataURL('image/jpeg',quality));
+    };
+    img.onerror=reject;
+    img.src=URL.createObjectURL(file);
   });
-  sel.onchange=async()=>{ await setVoiceChoice(sel.value); updateVoiceStatus(); setTimeout(()=>speak('Voz configurada.'),150); };
 }
-window.addEventListener('click', ()=>{ if('speechSynthesis' in window){ speechSynthesis.getVoices(); updateVoiceStatus(); } }, {once:true});
-if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=()=>{ speechSynthesis.getVoices(); populateVoiceSelect(); updateVoiceStatus(); }; }
 
-// ===== Views & Navigation =====
-const views={ home:document.getElementById('view-home'), alumno:document.getElementById('view-alumno'), adminPin:document.getElementById('view-admin-pin'), admin:document.getElementById('view-admin') };
-function show(id){
-  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
-  id.classList.add('active');
-  if(id===views.adminPin){ document.querySelectorAll('#view-admin-pin .pin-box input').forEach(i=>i.value=''); const m=document.getElementById('admin-pin-msg'); if(m) m.textContent=''; }
-  if(id===views.alumno){
-    document.querySelectorAll('#view-alumno .pin-box input').forEach(i=>i.value='');
-    const msg=document.getElementById('alumno-msg'); if(msg) msg.textContent='';
-    // Clear alumno panel (foto + nombre + paquete)
-    const panel=document.getElementById('alumno-panel'); panel.classList.remove('active');
-    document.getElementById('alumno-foto').src=''; document.getElementById('alumno-nombre').textContent=''; document.getElementById('alumno-paquete').textContent='';
-  }
+$('#mode-switch').addEventListener('change', ()=>{
+  const target = $('#mode-switch').value;
+  if(target==='admin'){
+    const pin = prompt('PIN Admin (4 dígitos):');
+    if(pin === cfg.admin_pin){ mode='admin'; }
+    else { alert('PIN incorrecto'); $('#mode-switch').value='alumno'; mode='alumno'; }
+  } else { mode='alumno'; }
+  applyMode();
+});
+function applyMode(){
+  $$('#tabs [data-admin]').forEach(el=>{ el.style.display = (mode==='admin') ? '' : 'none'; });
+  if(mode==='alumno'){ switchTo('kiosk'); }
 }
-document.getElementById('go-alumno').addEventListener('click',()=>show(views.alumno));
-document.getElementById('go-admin').addEventListener('click',()=>show(views.adminPin));
-document.querySelectorAll('[data-back]').forEach(b=>b.addEventListener('click',()=>show(views.home)));
-
-// iOS double-tap zoom guard
-let __lastTouchEnd=0; document.addEventListener('touchend', (e)=>{ const now=Date.now(); if(now-__lastTouchEnd<=300){ e.preventDefault(); } __lastTouchEnd=now; }, {passive:false});
-
-// ===== Alumno keypad =====
-const pinIds=['pin-1','pin-2','pin-3','pin-4']; const pinInputs=pinIds.map(id=>document.getElementById(id));
-const alumnoMsg=document.getElementById('alumno-msg');
-function setAlumnoMsg(t,c=''){ alumnoMsg.textContent=t; alumnoMsg.className='msg '+c; }
-const alumnoPanel=document.getElementById('alumno-panel'); const alumnoFoto=document.getElementById('alumno-foto'); const alumnoNombre=document.getElementById('alumno-nombre'); const alumnoPaquete=document.getElementById('alumno-paquete');
-
-document.querySelectorAll('[data-key]').forEach(btn=>btn.addEventListener('click', async ()=>{
-  const k=btn.dataset.key;
-  if(k==='del'){ for(let i=pinInputs.length-1;i>=0;i--){ if(pinInputs[i].value){ pinInputs[i].value=''; break; } } return; }
-  if(k==='ok'){
-    const pin=pinInputs.map(i=>i.value).join('');
-    if(pin.length!==4){ setAlumnoMsg('Completa los 4 dígitos.','warn'); return; }
-    const stu=await getStudentByPin(pin);
-    if(!stu){ setAlumnoMsg('Código no encontrado. Pide soporte en recepción.','error'); await speak('Código no encontrado'); pinInputs.forEach(i=>i.value=''); return; }
-    const today=todayISO();
-    const inRange=(!stu.startDate||stu.startDate<=today)&&(!stu.endDate||stu.endDate>=today);
-    if(!inRange){ setAlumnoMsg('Tu paquete no está vigente. Por favor reacude a recepción.','warn'); await speak('Paquete no vigente. Favor de pasar a recepción'); pinInputs.forEach(i=>i.value=''); return; }
-
-    let wasOneLeft=false;
-    if(stu.pkgType!=='mes'){
-      if(!stu.remaining || stu.remaining<=0){ setAlumnoMsg('Ya no tienes clases restantes. Reagendar en recepción.','warn'); await speak('Acceso denegado. Ya no tienes clases disponibles. Pasa a recepción para reagendar'); pinInputs.forEach(i=>i.value=''); return; }
-      if(stu.remaining===1){ wasOneLeft=true; stu.renewalReady = true; } // marcar que está listo para renovar
-      stu.remaining -= 1;
-      await addOrUpdateStudent(stu);
-    }
-    // Mostrar foto/nombre/paquete durante el acceso
-    alumnoFoto.src = stu.photo || '';
-    alumnoNombre.textContent = stu.name || '';
-    alumnoPaquete.textContent = (stu.pkgType==='mes') ? `Mes: ${formatDate(stu.startDate)} → ${formatDate(stu.endDate)}` : `Clases restantes: ${stu.remaining}`;
-    alumnoPanel.classList.add('active');
-
-    await logAttendance(stu.id);
-    if(wasOneLeft){
-      setAlumnoMsg(`¡Acceso concedido, ${stu.name.split(' ')[0]}! Te quedaba 1 clase. Reagendar en recepción (con pago).`, 'warn');
-      await speak('Acceso concedido. Te quedaba una clase. Pasa a recepción para renovar con pago');
-    } else {
-      setAlumnoMsg(`¡Acceso concedido, ${stu.name.split(' ')[0]}!`, 'success');
-      await speak(`Acceso concedido, ${stu.name.split(' ')[0]}`);
-    }
-    setTimeout(()=>{ pinInputs.forEach(i=>i.value=''); setAlumnoMsg(''); show(views.home); }, 3000);
-    return;
-  }
-  for(let i=0;i<pinInputs.length;i++){ if(!pinInputs[i].value){ pinInputs[i].value=k; break; } }
+function switchTo(tab){
+  $$('#tabs button').forEach(b=>b.classList.remove('active'));
+  $(`#tabs button[data-tab="${tab}"]`)?.classList.add('active');
+  $$('.tab').forEach(s=>s.classList.remove('active'));
+  $('#'+tab)?.classList.add('active');
+}
+$$('#tabs button[data-tab]').forEach(b=>b.addEventListener('click',()=>{
+  const tab=b.dataset.tab;
+  switchTo(tab);
+  renderAll();
 }));
 
-// ===== Admin PIN keypad =====
-const apIds=['apin-1','apin-2','apin-3','apin-4']; const apInputs=apIds.map(id=>document.getElementById(id)); const adminPinMsg=document.getElementById('admin-pin-msg');
-document.querySelectorAll('[data-apkey]').forEach(btn=>btn.addEventListener('click', async ()=>{
-  const k=btn.dataset.apkey;
-  if(k==='del'){ for(let i=apInputs.length-1;i>=0;i--){ if(apInputs[i].value){ apInputs[i].value=''; break; } } return; }
-  if(k==='ok'){
-    const pin=apInputs.map(i=>i.value).join('');
-    const saved=await getAdminPin();
-    if(pin===saved){ apInputs.forEach(i=>i.value=''); adminPinMsg.textContent=''; await refreshStudents(); initVoiceUI(); show(views.admin); }
-    else { adminPinMsg.textContent='PIN incorrecto.'; apInputs.forEach(i=>i.value=''); }
-    return;
-  }
-  for(let i=0;i<apInputs.length;i++){ if(!apInputs[i].value){ apInputs[i].value=k; break; } }
-}));
+function fillClassSelect(sel){
+  sel.innerHTML='<option value="">Paquete (clases)</option>'+
+    PACKS.map(p=>`<option value="${p.id}" data-classes="${p.classes}" data-price="${p.price}">${p.name} — $${p.price} MXN</option>`).join('');
+}
+fillClassSelect($('#student-classes'));
 
-// ===== Admin UI =====
-const listEl=document.getElementById('students'); const dlgStudent=document.getElementById('dlg-student'); const formStudent=document.getElementById('form-student'); const dlgTitle=document.getElementById('dlg-title'); const photoInput=document.getElementById('photo-input'); const photoPreview=document.getElementById('photo-preview');
-let editingStudent=null;
-
-document.getElementById('btn-add').addEventListener('click',()=>{
-  editingStudent=null; formStudent.reset(); photoPreview.src=''; delete photoPreview.dataset.dataUrl;
-  const s=formStudent.elements; s.remaining.value=pkgDefaultRemaining(s.pkgType.value); s.startDate.value=todayISO(); const d=new Date(s.startDate.value); d.setMonth(d.getMonth()+1); s.endDate.value=d.toISOString().slice(0,10);
-  dlgTitle.textContent='Añadir alumno'; dlgStudent.showModal();
+let pendingPhotoData='';
+$('#student-photo').addEventListener('change', async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  try{ pendingPhotoData=await fileToDataURLResized(f); }catch(_){ alert('No se pudo procesar la foto'); pendingPhotoData=''; }
 });
-formStudent.elements.pkgType.addEventListener('change',(e)=>{ formStudent.elements.remaining.value=pkgDefaultRemaining(e.target.value); });
-document.getElementById('btn-photo').addEventListener('click',()=>photoInput.click());
-photoInput.addEventListener('change', async (e)=>{
-  const file=e.target.files&&e.target.files[0]; if(!file) return;
-  const img=new Image(); img.onload=()=>{ const canvas=document.createElement('canvas'); const max=512; const ratio=Math.min(max/img.width,max/img.height,1); canvas.width=Math.round(img.width*ratio); canvas.height=Math.round(img.height*ratio); const ctx=canvas.getContext('2d'); ctx.drawImage(img,0,0,canvas.width,canvas.height); const data=canvas.toDataURL('image/jpeg',0.85); photoPreview.src=data; photoPreview.dataset.dataUrl=data; }; img.src=URL.createObjectURL(file);
+$('#student-classes').addEventListener('change', e=>{
+  const price = e.target.selectedOptions[0]?.dataset.price || 0;
+  $('#student-amount').value = price;
 });
-document.getElementById('btn-save-student').addEventListener('click', async (e)=>{
-  e.preventDefault(); const f=formStudent.elements; if(!f.name.value.trim() || !/^\d{4}$/.test(f.pin.value)){ alert('Nombre y PIN de 4 dígitos son obligatorios.'); return; }
-  const stu=editingStudent||{id:undefined}; Object.assign(stu,{ name:f.name.value.trim(), pin:f.pin.value.trim(), phone:f.phone.value.trim(), emergency:f.emergency.value.trim(), birthdate:f.birthdate.value||null, address:f.address.value.trim(), payment:f.payment.value, pkgType:f.pkgType.value, startDate:f.startDate.value, endDate:f.endDate.value, remaining:Number(f.remaining.value||0), photo:photoPreview.dataset.dataUrl||stu.photo||null, payments: (stu.payments||[]), active:true });
-  try{ await addOrUpdateStudent(stu); dlgStudent.close(); await refreshStudents(); editingStudent=null; }catch(err){ alert('Error guardando: '+err.message); }
-});
-
-async function refreshStudents(){
-  const all=await getAllStudents(); listEl.innerHTML=''; if(!all.length){ listEl.innerHTML='<p class="muted">Aún no hay alumnos.</p>'; updateAdminAlerts([]); return; }
-  const oneLeft=[];
-  for(const s of all){
-    const card=document.createElement('div'); card.className='card';
-    const remainText=s.pkgType==='mes' ? `${formatDate(s.startDate)} → ${formatDate(s.endDate)}` : `${s.remaining} clases restantes`;
-    const badge=(s.pkgType!=='mes' && (Number(s.remaining)===1 || s.renewalReady))?'<span class="badge">¡Falta 1 clase!</span>':'';
-    card.innerHTML=`
-      <img src="${s.photo||''}" alt="Foto de ${s.name}">
-      <h4>${s.name} ${badge}</h4>
-      <div class="muted">PIN: ${s.pin}</div>
-      <div class="muted">Paquete: ${s.pkgType.toUpperCase()} — ${remainText}</div>
-      <menu>
-        <button data-act="edit">Editar</button>
-        <button data-act="pay-renew" title="Registrar pago y reagendar">Registrar pago y Reagendar</button>
-        <button data-act="payments">Pagos</button>
-        <button data-act="resched">Reagendar</button>
-        <button data-act="delete" class="danger">Eliminar</button>
-      </menu>`;
-    card.querySelector('[data-act="edit"]').addEventListener('click',()=>openEdit(s));
-    card.querySelector('[data-act="pay-renew"]').addEventListener('click',()=>payAndResched(s));
-    card.querySelector('[data-act="resched"]').addEventListener('click',()=>guardedResched(s));
-    card.querySelector('[data-act="payments"]').addEventListener('click',()=>openPaymentsList(s));
-    card.querySelector('[data-act="delete"]').addEventListener('click',async()=>{ if(confirm('¿Eliminar este alumno?')){ await deleteStudent(s.id); await refreshStudents(); } });
-    if(s.pkgType!=='mes' && (Number(s.remaining)===1 || s.renewalReady)) oneLeft.push(s);
-    listEl.appendChild(card);
-  }
-  updateAdminAlerts(oneLeft);
-}
-function updateAdminAlerts(list){
-  const banner=document.getElementById('admin-alerts');
-  if(list.length){ banner.classList.add('active'); const items=list.map(s=>`• ${s.name} (PIN ${s.pin})`).join('<br>'); banner.innerHTML=`<h4>Atención — Falta 1 clase</h4><div class="muted">Solo se puede reagendar con pago registrado:</div><div style="margin-top:6px">${items}</div>`; }
-  else { banner.classList.remove('active'); banner.innerHTML=''; }
-}
-
-function openEdit(s){
-  editingStudent=s; const f=formStudent.elements; document.getElementById('dlg-title').textContent='Editar alumno';
-  f.name.value=s.name||''; f.pin.value=s.pin||''; f.phone.value=s.phone||''; f.emergency.value=s.emergency||''; f.birthdate.value=s.birthdate||''; f.address.value=s.address||''; f.payment.value=s.payment||''; f.pkgType.value=s.pkgType||'suelta'; f.startDate.value=s.startDate||todayISO(); f.endDate.value=s.endDate||todayISO(); f.remaining.value=s.remaining||pkgDefaultRemaining(f.pkgType.value); photoPreview.src=s.photo||''; photoPreview.dataset.dataUrl=s.photo||''; dlgStudent.showModal();
-}
-
-// --- Reagendar con control de pago ---
-const dlgRes=document.getElementById('dlg-resched'); const formRes=document.getElementById('form-resched'); let resTarget=null;
-function guardedResched(s){
-  // Solo permitir si pagó y está en renovación (o si admin insiste, puede usar pay-renew)
-  if(s.pkgType!=='mes' && (s.renewalReady || Number(s.remaining)<=0)){
-    if(!s.renewalPaidAt){ alert('Debes registrar el nuevo pago antes de reagendar. Usa "Registrar pago y Reagendar".'); return; }
-  }
-  openResched(s);
-}
-function openResched(s){
-  resTarget=s; const f=formRes.elements; f.pkgType.value=s.pkgType; f.startDate.value=todayISO(); const d=new Date(f.startDate.value); d.setMonth(d.getMonth()+1); f.endDate.value=d.toISOString().slice(0,10); f.remaining.value=pkgDefaultRemaining(f.pkgType.value);
-  const note=document.getElementById('resched-note'); if(s.pkgType!=='mes') note.textContent = s.renewalPaidAt ? 'Pago registrado. Continúa con la renovación.' : 'Requiere pago registrado: usa "Registrar pago y Reagendar".';
-  dlgRes.showModal();
-}
-document.getElementById('btn-resched-save').addEventListener('click', async (e)=>{
-  e.preventDefault(); const f=formRes.elements; if(!resTarget) return;
-  // Si es renovación de paquetes por clases, exigir pago
-  if(resTarget.pkgType!=='mes' && (resTarget.renewalReady || Number(resTarget.remaining)<=0) && !resTarget.renewalPaidAt){
-    alert('No puedes reagendar sin registrar el nuevo pago.'); return;
-  }
-  resTarget.pkgType=f.pkgType.value; resTarget.startDate=f.startDate.value; resTarget.endDate=f.endDate.value; resTarget.remaining=Number(f.remaining.value||0);
-  // Reset flags tras renovar
-  resTarget.renewalReady=false; resTarget.renewalPaidAt=null;
-  await addOrUpdateStudent(resTarget); dlgRes.close(); await refreshStudents();
-});
-
-
-// ===== Payments feature =====
-const dlgPayments = document.getElementById('dlg-payments');
-const formPayments = document.getElementById('form-payments');
-const paymentsTable = document.getElementById('payments-table');
-const dlgPayment = document.getElementById('dlg-payment');
-const formPayment = document.getElementById('form-payment');
-let paymentsTarget = null;
-let continueToResched = false;
-
-function fmtMoney(n){ try{ return new Intl.NumberFormat('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:0}).format(Number(n||0)); }catch(_){ return '$'+Number(n||0); } }
-function fmtDateTime(iso){ const d=new Date(iso); return d.toLocaleString(); }
-
-function openPaymentsList(stu){
-  paymentsTarget = stu;
-  renderPaymentsList();
-  dlgPayments.showModal();
-}
-function renderPaymentsList(){
-  const stu = paymentsTarget; if(!stu) return;
-  const rows = (stu.payments||[]).slice().reverse().map(p=>`<tr><td>${fmtDateTime(p.ts)}</td><td>${fmtMoney(p.amount)}</td><td>${p.method||''}</td><td>${(p.note||'')}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Sin pagos registrados.</td></tr>';
-  paymentsTable.innerHTML = `<table><thead><tr><th>Fecha</th><th>Monto</th><th>Método</th><th>Nota</th></tr></thead><tbody>${rows}</tbody></table>`;
-}
-
-document.getElementById('btn-add-payment').addEventListener('click', ()=>{
-  if(!paymentsTarget) return;
-  formPayment.reset();
-  continueToResched = false;
-  dlgPayment.showModal();
-});
-
-document.getElementById('btn-save-payment').addEventListener('click', async (e)=>{
+$('#form-student').addEventListener('submit', e=>{
   e.preventDefault();
-  if(!paymentsTarget) return;
-  const f=formPayment.elements;
-  if(!f.amount.value){ alert('Captura el monto.'); return; }
-  const entry = { ts:new Date().toISOString(), amount:Number(f.amount.value), method:f.method.value, note:(f.note.value||'') };
-  paymentsTarget.payments = paymentsTarget.payments || [];
-  paymentsTarget.payments.push(entry);
-  paymentsTarget.renewalPaidAt = entry.ts;
-  // Si estaba listo para renovación (1 clase), mantener la marca; si no, no importa
-  await addOrUpdateStudent(paymentsTarget);
-  dlgPayment.close();
-  renderPaymentsList();
-  await refreshStudents();
-  if(continueToResched){ openResched(paymentsTarget); }
+  const fd=new FormData(e.target);
+  const name = fd.get('full_name'); const phone=fd.get('phone');
+  const packId = fd.get('classes'); const opt = $('#student-classes').selectedOptions[0];
+  if(!packId){ alert('Selecciona el paquete'); return; }
+  const classes = parseInt(opt.dataset.classes||'0',10);
+  const amount = parseFloat(fd.get('amount_mxn')||'0');
+  const payStatus = fd.get('payment_status')||'pendiente';
+  const sid = uid('stu');
+  const pin = generatePin();
+  const endDate = (()=>{ const d=new Date(); d.setMonth(d.getMonth()+1); return d.toISOString().slice(0,10) })();
+  const student = { student_id:sid, full_name:name, phone, photo_data: pendingPhotoData||'' };
+  db.students.push(student);
+  const enrId=uid('enr');
+  db.enrollments.push({ enrollment_id:enrId, student_id:sid, classes_total:classes, remaining_classes:classes, end_date:endDate, status:'activo', amount_mxn:amount });
+  db.payments.push({ payment_id:uid('pay'), enrollment_id:enrId, student_id:sid, date:todayISO(), amount_mxn:amount, method:'', status:payStatus, reference:'alta' });
+  db.pins.push({ student_id:sid, pin });
+  save(db);
+  alert(`Alumno agregado. PIN: ${pin}`);
+  e.target.reset(); pendingPhotoData='';
+  renderStudents(); renderPayments();
 });
 
-// Hook for "Registrar pago y Reagendar" -> open payment dialog and continue to resched after save
-async function payAndResched(s){
-  paymentsTarget = s;
-  continueToResched = true;
-  formPayment.reset();
-  dlgPayment.showModal();
+function renderStudents(){
+  const tb=$('#table-students tbody'); tb.innerHTML='';
+  for(const s of db.students){
+    const enr = db.enrollments.find(e=>e.student_id===s.student_id && e.status==='activo') || db.enrollments.filter(e=>e.student_id===s.student_id).sort((a,b)=>b.end_date.localeCompare(a.end_date))[0];
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${s.photo_data?`<img src="${s.photo_data}" class="tbl-photo" alt="foto">`:'—'}</td>
+      <td>${s.full_name}</td><td>${s.phone||''}</td>
+      <td>${enr?enr.classes_total:0}</td><td>${enr?enr.remaining_classes:0}</td><td>${enr?enr.end_date||'-':'-'}</td>
+      <td><button data-act="open" data-id="${s.student_id}">Perfil</button></td>`;
+    tb.appendChild(tr);
+  }
+  tb.onclick = (e)=>{
+    const b=e.target.closest('button'); if(!b) return;
+    if(b.dataset.act==='open'){ openProfile(b.dataset.id); }
+  };
 }
 
-// From the list, admin can still open "Registrar pago y Reagendar" by closing list and clicking the card button.
-
-// Export/Import/Reset
-document.getElementById('btn-export').addEventListener('click', async ()=>{
-  const [students,pin]=[await getAllStudents(), await getAdminPin()];
-  const data={when:new Date().toISOString(), adminPin:pin, students, version:1};
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-  const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`adnh-respaldo-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(url);
-});
-document.getElementById('file-import').addEventListener('change', async (e)=>{
-  const file=e.target.files&&e.target.files[0]; if(!file) return;
-  if(!confirm('Esto reemplazará tu lista de alumnos. ¿Continuar?')) return;
-  const text=await file.text(); const data=JSON.parse(text);
-  const {tx:t,stores:[st,meta]}=await tx(['students','meta'],'readwrite');
-  await new Promise(res=>{ const cr=st.clear(); cr.onsuccess=()=>res(); cr.onerror=()=>res(); });
-  if(Array.isArray(data.students)){ for(const s of data.students){ delete s.id; await st.add(s); } }
-  if(data.adminPin){ await meta.put({key:'adminPin',value:data.adminPin}); }
-  await new Promise(res=>t.oncomplete=()=>res()); await refreshStudents(); alert('Datos importados.');
-});
-document.getElementById('btn-reset').addEventListener('click', async ()=>{
-  if(!confirm('Reiniciar app (borra alumnos y ajustes)?')) return;
-  if(db) db.close(); await indexedDB.deleteDatabase(DB_NAME); db=null; location.reload();
-});
-
-// Voice UI
-function initVoiceUI(){
-  const chk=document.getElementById('voice-enabled'); if(!chk) return;
-  getVoiceEnabled().then(v=>{ chk.checked=v; populateVoiceSelect(); updateVoiceStatus(); });
-  chk.onchange=()=>setVoiceEnabled(chk.checked);
-  document.getElementById('btn-test-voice').onclick=()=>{ setVoiceEnabled(true); chk.checked=true; if('speechSynthesis' in window){ speechSynthesis.getVoices(); } setTimeout(()=>{ updateVoiceStatus(); speak('Prueba de voz en español'); }, 200); };
+function openProfile(sid){
+  const s = db.students.find(x=>x.student_id===sid); if(!s) return;
+  const enr = db.enrollments.find(e=>e.student_id===sid && e.status==='activo') || db.enrollments.filter(e=>e.student_id===sid).sort((a,b)=>b.end_date.localeCompare(a.end_date))[0];
+  $('#student-profile').style.display='block';
+  $('#sp-name').textContent = s.full_name;
+  $('#sp-photo').src = s.photo_data || 'icons/icon-192.png';
+  $('#sp-full_name').value = s.full_name||'';
+  $('#sp-phone').value = s.phone||'';
+  fillClassSelect($('#sp-classes'));
+  if(enr){ $('#sp-classes').value = 'P'+(enr.classes_total||1); }
+  $('#sp-amount').value = enr? (enr.amount_mxn||0) : 0;
+  const lastPay = db.payments.filter(p=>p.enrollment_id===enr?.enrollment_id).sort((a,b)=>b.date.localeCompare(a.date))[0];
+  $('#sp-payment').value = (lastPay?.status)||'pendiente';
+  $('#sp-end').value = enr? (enr.end_date||'') : '';
+  $('#sp-photo-btn').onclick = ()=>{
+    const input=document.createElement('input'); input.type='file'; input.accept='image/*'; input.capture='environment';
+    input.onchange = async ()=>{
+      const f=input.files[0]; if(!f) return;
+      try{ s.photo_data=await fileToDataURLResized(f); save(db); openProfile(sid); renderStudents(); }catch(_){ alert('No se pudo procesar la foto'); }
+    };
+    input.click();
+  };
+  $('#sp-save').onclick = ()=>{
+    s.full_name = $('#sp-full_name').value.trim()||s.full_name;
+    s.phone = $('#sp-phone').value.trim();
+    if(enr){
+      const opt = $('#sp-classes').selectedOptions[0];
+      if(opt){
+        const classes = parseInt(opt.dataset.classes||'0',10);
+        const diff = classes - (enr.classes_total||0);
+        enr.classes_total = classes;
+        enr.remaining_classes = Math.max(0, (enr.remaining_classes||0) + diff);
+      }
+      enr.amount_mxn = parseFloat($('#sp-amount').value||'0');
+      enr.end_date = $('#sp-end').value || enr.end_date;
+      if(lastPay && lastPay.status==='pendiente'){ lastPay.amount_mxn = enr.amount_mxn; }
+      const st = $('#sp-payment').value;
+      if(lastPay){ lastPay.status = st; }
+      else { db.payments.push({ payment_id:uid('pay'), enrollment_id:enr.enrollment_id, student_id:sid, date:todayISO(), amount_mxn:enr.amount_mxn||0, method:'', status:st, reference:'ajuste' }); }
+    }
+    save(db); renderStudents(); openProfile(sid);
+    alert('Cambios guardados');
+  };
+  $('#sp-close').onclick = ()=>{
+    if(enr){ enr.status='vencido'; save(db); renderStudents(); openProfile(sid); }
+  };
+  $('#sp-reagenda').onclick = ()=>{
+    if(!enr){ alert('Sin paquete activo'); return; }
+    if((enr.remaining_classes||0)!==1){ alert('Solo se puede reagendar cuando queda 1 clase.'); return; }
+    const payOk = !!db.payments.find(p=>p.enrollment_id===enr.enrollment_id && p.status==='pagado');
+    if(!payOk){ alert('Para reagendar, el pago del paquete actual debe estar PAGADO.'); return; }
+    const d=new Date(); d.setMonth(d.getMonth()+1);
+    const newEnr = { enrollment_id:uid('enr'), student_id:sid, classes_total:enr.classes_total, remaining_classes:enr.classes_total, end_date:d.toISOString().slice(0,10), status:'activo', amount_mxn:enr.amount_mxn||0 };
+    enr.status='vencido';
+    db.enrollments.push(newEnr);
+    db.payments.push({ payment_id:uid('pay'), enrollment_id:newEnr.enrollment_id, student_id:sid, date:todayISO(), amount_mxn:newEnr.amount_mxn||0, method:'', status:'pendiente', reference:'reagendado v2' });
+    save(db); renderStudents(); openProfile(sid);
+    alert('Reagendado. Se creó un nuevo paquete con pago PENDIENTE.');
+  };
+  // Payment history with "Pagar ahora"
+  const tb=$('#table-sp-payments tbody'); tb.innerHTML='';
+  const rows = db.payments.filter(p=>p.student_id===sid).sort((a,b)=>b.date.localeCompare(a.date));
+  for(const p of rows){
+    const tr=document.createElement('tr');
+    const btn = (p.status==='pendiente') ? `<button data-act="paynow" data-id="${p.payment_id}">Pagar ahora</button>` : '';
+    tr.innerHTML = `<td>${p.date}</td><td>${(p.amount_mxn||0).toFixed(2)}</td><td>${p.method||''}</td><td>${p.status}</td><td>${p.reference||''}</td><td>${btn}</td>`;
+    tb.appendChild(tr);
+  }
+  tb.onclick = (e)=>{
+    const b=e.target.closest('button'); if(!b) return;
+    if(b.dataset.act==='paynow'){
+      const pay = db.payments.find(x=>x.payment_id===b.dataset.id);
+      if(pay){ pay.status='pagado'; save(db); openProfile(sid); renderPayments(); alert('Pago marcado como PAGADO'); }
+    }
+  };
 }
 
-// PWA
-if('serviceWorker' in navigator){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
+function renderPaymentSelectors(){
+  const sel=$('#form-payment select[name="student_id"]');
+  sel.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('');
+}
+$('#form-payment').addEventListener('submit', e=>{
+  e.preventDefault();
+  const fd=new FormData(e.target);
+  const sid=fd.get('student_id'); if(!sid){ alert('Elige alumno'); return; }
+  const en = db.enrollments.find(x=>x.student_id===sid && x.status==='activo'); if(!en){ alert('Alumno sin paquete activo'); return; }
+  db.payments.push({ payment_id:uid('pay'), enrollment_id:en.enrollment_id, student_id:sid, date:todayISO(), amount_mxn:parseFloat(fd.get('amount_mxn')||'0'), method:fd.get('method')||'', status:fd.get('status')||'pendiente', reference:fd.get('reference')||'' });
+  save(db); e.target.reset(); renderPayments();
+});
+function renderPayments(){
+  const tb=$('#table-payments tbody'); tb.innerHTML='';
+  const rows=db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  for(const p of rows){
+    const s=db.students.find(x=>x.student_id===p.student_id);
+    const btn = (p.status==='pendiente') ? `<button data-act="paynow" data-id="${p.payment_id}">Pagar ahora</button>` : '';
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td>${p.date}</td><td>${s?s.full_name:''}</td><td>${p.method||''}</td><td>${(p.amount_mxn||0).toFixed(2)}</td><td>${p.status||''}</td><td>${p.reference||''}</td><td>${btn}</td>`;
+    tb.appendChild(tr);
+  }
+  tb.onclick = (e)=>{
+    const b=e.target.closest('button'); if(!b) return;
+    if(b.dataset.act==='paynow'){
+      const pay = db.payments.find(x=>x.payment_id===b.dataset.id);
+      if(pay){ pay.status='pagado'; save(db); renderPayments(); alert('Pago marcado como PAGADO'); }
+    }
+  };
+}
+
+function renderAttendance(){
+  const tb=$('#table-attendance tbody'); tb.innerHTML='';
+  const rows = db.attendance.filter(a=>a.date===todayISO() && (!currentKioskStudentId || a.student_id===currentKioskStudentId));
+  for(const a of rows){
+    const s=db.students.find(x=>x.student_id===a.student_id);
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td>${a.date}</td><td>${s?s.full_name:''}</td><td>${a.group||'General'}</td><td>Sí</td>`;
+    tb.appendChild(tr);
+  }
+}
+function showKioskProfile(sid){
+  currentKioskStudentId = sid;
+  const box = $('#kiosk-profile');
+  const s=db.students.find(x=>x.student_id===sid);
+  const en = db.enrollments.find(e=>e.student_id===sid && e.status==='activo');
+  const rest = en ? en.remaining_classes : 0;
+  const img = s?.photo_data ? `<img src="${s.photo_data}" alt="foto">` : `<img src="icons/icon-192.png" alt="foto">`;
+  box.innerHTML = `${img}<div class="info"><div class="name">${s?s.full_name:''}</div><div class="meta">Restantes: ${rest}</div><div class="meta">Hoy: ${todayISO()}</div></div>`;
+  box.style.display='flex';
+  renderAttendance();
+  if(kioskTimer) clearTimeout(kioskTimer);
+  kioskTimer = setTimeout(clearKiosk, 12000);
+}
+function clearKiosk(){
+  currentKioskStudentId = null;
+  $('#kiosk-profile').style.display='none'; $('#kiosk-profile').innerHTML='';
+  renderAttendance();
+}
+$('#form-pin input[name="pin"]').addEventListener('input', ()=>{ if(kioskTimer) clearTimeout(kioskTimer); clearKiosk(); });
+$('#form-pin').addEventListener('submit', e=>{
+  e.preventDefault();
+  const pin=(new FormData(e.target).get('pin')||'').trim();
+  const rec=db.pins.find(p=>p.pin===pin);
+  if(!rec){ alert('PIN incorrecto'); speakEs(cfg.voice_deny); return; }
+  const sid=rec.student_id;
+  const en = db.enrollments.find(e=>e.student_id===sid && e.status==='activo');
+  const paid = en && db.payments.find(p=>p.enrollment_id===en.enrollment_id && p.status==='pagado');
+  if(!en || !paid){ alert('Acceso denegado: pago pendiente o sin paquete activo.'); speakEs(cfg.voice_deny); return; }
+  if(en.remaining_classes<=0){ alert('No quedan clases.'); speakEs(cfg.voice_deny); return; }
+  db.attendance.push({ attendance_id:uid('att'), student_id:sid, date:todayISO(), group:'General' });
+  en.remaining_classes -= 1;
+  save(db);
+  speakEs(cfg.voice_ok);
+  e.target.reset();
+  showKioskProfile(sid);
+}
+
+function renderReports(){
+  const ym = todayISO().slice(0,7);
+  const att = db.attendance.filter(a=>a.date.startsWith(ym)).length;
+  const income = db.payments.filter(p=>p.date.startsWith(ym)&&p.status==='pagado').reduce((s,x)=>s+(+x.amount_mxn||0),0);
+  $('#r-att-month').textContent=att;
+  $('#r-income-month').textContent=`$ ${income.toFixed(2)} MXN`;
+}
+
+$('#cfg-save').addEventListener('click', ()=>{
+  const pin=$('#cfg-admin-pin').value.trim()||cfg.admin_pin;
+  if(!/^\d{4}$/.test(pin)){ alert('PIN Admin inválido'); return; }
+  cfg={ brand: $('#cfg-brand').value || 'Academia NH v2', admin_pin: pin, voice_ok: $('#cfg-voice-ok').value || 'Acceso otorgado', voice_deny: $('#cfg-voice-deny').value || 'Acceso denegado' };
+  cfgSave(cfg); document.title=cfg.brand; $('#brand-title').textContent=cfg.brand;
+  alert('Configuración guardada');
+});
+$('#cfg-clear').addEventListener('click', async ()=>{
+  try{
+    if('caches' in window){ const keys=await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); }
+    if('serviceWorker' in navigator){ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); }
+  }catch(e){}
+  alert('Caché borrada. Se recargará.');
+  location.replace(location.pathname+'?v=clean3');
+});
+
+function renderAll(){
+  renderStudents(); renderPaymentSelectors(); renderPayments(); renderAttendance(); renderReports(); applyMode();
+}
+renderAll();
+})();
