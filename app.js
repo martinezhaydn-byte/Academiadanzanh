@@ -32,6 +32,20 @@ function todayISO(){ const d=new Date(); const z=new Date(Date.UTC(d.getFullYear
 function formatDate(d){ return new Date(d).toLocaleDateString(); }
 
 // ===== Voice (es-MX priority) =====
+let userInteracted = false;
+
+function updateVoiceStatus(){
+  const el = document.getElementById('voice-status'); if(!el) return;
+  if(!('speechSynthesis' in window)){ el.textContent = 'Voz no soportada en este dispositivo'; return; }
+  const list = speechSynthesis.getVoices();
+  const v = pickSpanishVoice();
+  if (list && list.length) {
+    el.textContent = v ? `Voz detectada: ${v.name} (${v.lang})` : `Voces disponibles: ${list.length}`;
+  } else {
+    el.textContent = 'Cargando voces… toca "Probar voz"';
+  }
+}
+
 function pickSpanishVoice(){
   const list = speechSynthesis.getVoices() || [];
   let v = list.find(x=>/es\-MX/i.test(x.lang||'') || /mexico/i.test(x.name||''));
@@ -53,7 +67,8 @@ async function speak(text){
   }catch(_){}
 }
 // iOS loads voices after interaction: bind once
-window.addEventListener('click', ()=>{ if('speechSynthesis' in window){ speechSynthesis.getVoices(); } }, {once:true});
+window.addEventListener('click', ()=>{ userInteracted=true; if('speechSynthesis' in window){ speechSynthesis.getVoices(); updateVoiceStatus(); } }, {once:true});
+window.addEventListener('touchstart', ()=>{ userInteracted=true; if('speechSynthesis' in window){ speechSynthesis.getVoices(); updateVoiceStatus(); } }, {once:true});
 
 // ===== Views & Navigation (robust) =====
 const views = {
@@ -76,8 +91,8 @@ function show(id){
 }
 
 // ===== UI Bindings =====
-document.getElementById('go-alumno').addEventListener('click',()=>show(views.alumno));
-document.getElementById('go-admin').addEventListener('click',()=>show(views.adminPin));
+document.getElementById('go-alumno').addEventListener('click',()=>{ if('speechSynthesis' in window){ speechSynthesis.getVoices(); updateVoiceStatus(); } show(views.alumno); });
+document.getElementById('go-admin').addEventListener('click',()=>{ if('speechSynthesis' in window){ speechSynthesis.getVoices(); updateVoiceStatus(); } show(views.adminPin); });
 document.querySelectorAll('[data-back]').forEach(b=>b.addEventListener('click',()=>show(views.home)));
 
 // iOS double-tap zoom guard
@@ -97,6 +112,7 @@ document.querySelectorAll('[data-key]').forEach(btn=>btn.addEventListener('click
     const pin=pinInputs.map(i=>i.value).join('');
     if(pin.length!==4){ setAlumnoMsg('Completa los 4 dígitos.','warn'); return; }
     const stu=await getStudentByPin(pin);
+    if('speechSynthesis' in window){ speechSynthesis.getVoices(); updateVoiceStatus(); }
     if(!stu){ setAlumnoMsg('Código no encontrado. Pide soporte en recepción.','error'); await speak('Código no encontrado'); pinInputs.forEach(i=>i.value=''); return; }
     const today=todayISO();
     const inRange=(!stu.startDate||stu.startDate<=today)&&(!stu.endDate||stu.endDate>=today);
@@ -132,7 +148,7 @@ document.querySelectorAll('[data-apkey]').forEach(btn=>btn.addEventListener('cli
   if(k==='ok'){
     const pin=apInputs.map(i=>i.value).join('');
     const saved=await getAdminPin();
-    if(pin===saved){ apInputs.forEach(i=>i.value=''); adminPinMsg.textContent=''; await refreshStudents(); initVoiceUI(); show(views.admin); }
+    if(pin===saved){ if('speechSynthesis' in window){ speechSynthesis.getVoices(); updateVoiceStatus(); } apInputs.forEach(i=>i.value=''); adminPinMsg.textContent=''; await refreshStudents(); initVoiceUI(); show(views.admin); }
     else { adminPinMsg.textContent='PIN incorrecto.'; apInputs.forEach(i=>i.value=''); }
     return;
   }
@@ -285,12 +301,12 @@ document.getElementById('btn-reset').addEventListener('click', async ()=>{
 // Voice toggle UI
 function initVoiceUI(){
   const chk=document.getElementById('voice-enabled'); if(!chk) return;
-  getVoiceEnabled().then(v=>chk.checked=v);
+  getVoiceEnabled().then(v=>{ chk.checked=v; updateVoiceStatus(); });
   chk.onchange=()=>setVoiceEnabled(chk.checked);
-  document.getElementById('btn-test-voice').onclick=()=>{ setVoiceEnabled(true); chk.checked=true; setTimeout(()=>speak('Prueba de voz: Español México'),150); };
+  document.getElementById('btn-test-voice').onclick=()=>{ setVoiceEnabled(true); chk.checked=true; if('speechSynthesis' in window){ speechSynthesis.getVoices(); } setTimeout(()=>{ updateVoiceStatus(); speak('Prueba de voz: Español México'); }, 200); };
 }
 // In case voices load later
-if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=()=>{ /* refresh cache */ speechSynthesis.getVoices(); }; }
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=()=>{ speechSynthesis.getVoices(); updateVoiceStatus(); }; }
 
 // PWA
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
