@@ -12,6 +12,9 @@ const openDB=()=>new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VERSI
 async function tx(names,mode='readonly'){ if(!db) db=await openDB(); const t=db.transaction(names,mode); return {tx:t, stores:names.map(n=>t.objectStore(n))}; }
 
 // ===== Meta helpers =====
+async function getVoiceChoice(){ const {stores:[m]} = await tx(['meta']); return await new Promise(res=>{ const r=m.get('voiceChoice'); r.onsuccess=()=>res(r.result?r.result.value:null); r.onerror=()=>res(null); }); }
+async function setVoiceChoice(id){ const {tx:t,stores:[m]} = await tx(['meta'],'readwrite'); await m.put({key:'voiceChoice', value:id}); return new Promise(res=>t.oncomplete=()=>res(true)); }
+
 async function getAdminPin(){ const {stores:[m]}=await tx(['meta']); return await new Promise(res=>{const r=m.get('adminPin'); r.onsuccess=()=>res(r.result?r.result.value:'0000'); r.onerror=()=>res('0000');});}
 async function setAdminPin(v){ const {tx:t,stores:[m]}=await tx(['meta'],'readwrite'); await m.put({key:'adminPin',value:v}); return new Promise(res=>t.oncomplete=()=>res(true)); }
 async function getVoiceEnabled(){ const {stores:[m]}=await tx(['meta']); return await new Promise(res=>{const r=m.get('voiceEnabled'); r.onsuccess=()=>res(r.result?!!r.result.value:true); r.onerror=()=>res(true);});}
@@ -38,7 +41,7 @@ function updateVoiceStatus(){
   const el = document.getElementById('voice-status'); if(!el) return;
   if(!('speechSynthesis' in window)){ el.textContent = 'Voz no soportada en este dispositivo'; return; }
   const list = speechSynthesis.getVoices();
-  const v = pickSpanishVoice();
+  const v = await pickPreferredVoice();
   if (list && list.length) {
     el.textContent = v ? `Voz detectada: ${v.name} (${v.lang})` : `Voces disponibles: ${list.length}`;
   } else {
@@ -54,12 +57,30 @@ function pickSpanishVoice(){
   if(!v && list.length) v = list[0];
   return v || null;
 }
+
+async function pickPreferredVoice(){
+  if(!('speechSynthesis' in window)) return null;
+  const list = speechSynthesis.getVoices() || [];
+  if(!list.length) return null;
+  const choice = await getVoiceChoice();
+  if(choice){
+    const byId = list.find(x=>(x.name+'|'+(x.lang||'')).toLowerCase()===choice.toLowerCase());
+    if(byId) return byId;
+  }
+  // Defaults: es-MX -> es-419 -> any es-*
+  let v = list.find(x=>/es\-MX/i.test(x.lang||'') || /mexico/i.test(x.name||''));
+  if(!v) v = list.find(x=>/es\-419/i.test(x.lang||''));
+  if(!v) v = list.find(x=>/^es/i.test(x.lang||''));
+  if(!v) v = list[0];
+  return v || null;
+}
+
 async function speak(text){
   try{
     const enabled = await getVoiceEnabled();
     if(!enabled || !('speechSynthesis' in window)) return;
     const u = new SpeechSynthesisUtterance(text);
-    const v = pickSpanishVoice();
+    const v = await pickPreferredVoice();
     if(v) u.voice = v;
     u.rate = 1; u.pitch = 1; u.volume = 1;
     speechSynthesis.cancel();
@@ -301,12 +322,50 @@ document.getElementById('btn-reset').addEventListener('click', async ()=>{
 // Voice toggle UI
 function initVoiceUI(){
   const chk=document.getElementById('voice-enabled'); if(!chk) return;
-  getVoiceEnabled().then(v=>{ chk.checked=v; updateVoiceStatus(); });
+  getVoiceEnabled().then(v=>{ chk.checked=v; populateVoiceSelect(); updateVoiceStatus(); });
   chk.onchange=()=>setVoiceEnabled(chk.checked);
   document.getElementById('btn-test-voice').onclick=()=>{ setVoiceEnabled(true); chk.checked=true; if('speechSynthesis' in window){ speechSynthesis.getVoices(); } setTimeout(()=>{ updateVoiceStatus(); speak('Prueba de voz: Español México'); }, 200); };
 }
 // In case voices load later
-if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=()=>{ speechSynthesis.getVoices(); updateVoiceStatus(); }; }
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=()=>{ speechSynthesis.getVoices(); populateVoiceSelect(); updateVoiceStatus(); }; }
 
 // PWA
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); }); }
+
+
+function populateVoiceSelect(){
+  const sel = document.getElementById('voice-select'); if(!sel) return;
+  sel.innerHTML = '';
+  if(!('speechSynthesis' in window)){ sel.disabled = true; return; }
+  const list = speechSynthesis.getVoices() || [];
+  for(const v of list){
+    const opt = document.createElement('option');
+    opt.value = v.name + '|' + (v.lang||'');
+    opt.textContent = `${v.name} (${v.lang||'?'})`;
+    sel.appendChild(opt);
+  }
+  // Set current choice or sensible default
+  getVoiceChoice().then(async (saved)=>{
+    let target = saved;
+    if(!target){
+      // choose default Spanish if possible
+      const mx = list.find(x=>/es\-MX/i.test(x.lang||''));
+      const la = list.find(x=>/es\-419/i.test(x.lang||''));
+      const es = list.find(x=>/^es/i.test(x.lang||''));
+      const pick = mx || la || es || list[0];
+      if(pick) target = pick.name + '|' + (pick.lang||'');
+      if(target) await setVoiceChoice(target);
+    }
+    if(target){
+      const i = Array.from(sel.options).findIndex(o=>o.value.toLowerCase()===target.toLowerCase());
+      if(i>=0) sel.selectedIndex = i;
+    }
+    updateVoiceStatus();
+  });
+  sel.onchange = async ()=>{
+    await setVoiceChoice(sel.value);
+    updateVoiceStatus();
+    setTimeout(()=>speak('Voz configurada.'), 150);
+  };
+}
+
