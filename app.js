@@ -1,356 +1,609 @@
-(function(){
-const $=(s,r=document)=>r.querySelector(s);
-const $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
-const DB=['students','enrollments','attendance','payments','pins'];
-const CFG_KEY='cfg_v3';
 
-function cfgLoad(){
-  const c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
-  return {
-    brand: c.brand || 'Academia NH v3',
-    admin_pin: c.admin_pin || '1234',
-    voice_ok: c.voice_ok || 'Acceso otorgado',
-    voice_deny: c.voice_deny || 'Acceso denegado'
-  };
+// ===== Utilidades de almacenamiento =====
+const DB_KEY = "danzaDB_v3";
+
+const defaultConfig = {
+  adminPin: "2580",
+  precios: { "1": 80, "2": 150, "4": 280, "6": 380, "8": 480, "mes": 600 },
+  voice: { volume: 1, rate: 1.0 }
+};
+
+function loadDB() {
+  const raw = localStorage.getItem(DB_KEY);
+  if (!raw) {
+    const db = { config: defaultConfig, alumnos: [] };
+    localStorage.setItem(DB_KEY, JSON.stringify(db));
+    return db;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    // merge defaults for new fields
+    if (!parsed.config) parsed.config = structuredClone(defaultConfig);
+    parsed.config.precios = { ...defaultConfig.precios, ...(parsed.config.precios||{}) };
+    parsed.config.voice = { ...defaultConfig.voice, ...(parsed.config.voice||{}) };
+    if (!Array.isArray(parsed.alumnos)) parsed.alumnos = [];
+    return parsed;
+  } catch {
+    const db = { config: defaultConfig, alumnos: [] };
+    localStorage.setItem(DB_KEY, JSON.stringify(db));
+    return db;
+  }
 }
-function cfgSave(c){ localStorage.setItem(CFG_KEY, JSON.stringify(c)); }
-let cfg = cfgLoad();
-document.title = cfg.brand;
-$('#brand-title').textContent = cfg.brand;
+function saveDB(db) { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
 
-let mode = 'alumno';
-let kioskTimer = null;
-let currentKioskStudentId = null;
+function mxn(n) { return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n||0)); }
 
-const PACKS = Array.from({length:12}, (_,i)=>{
-  const n=i+1; return {id:'P'+n, name:`${n} clase${n>1?'s':''}`, classes:n, price: n*90};
+// ===== VOZ (Web Speech API) =====
+let cachedVoices = [];
+function getSpanishVoice() {
+  cachedVoices = window.speechSynthesis?.getVoices?.() || [];
+  const prefer = ["es-MX","es-419","es-ES","Spanish"];
+  // Buscar coincidencias claras por lang
+  for (const p of prefer) {
+    const v = cachedVoices.find(v=> (v.lang || "").toLowerCase().includes(p.toLowerCase()));
+    if (v) return v;
+  }
+  // Si no encuentra, intentar voz por nombre con pistas comunes
+  const candidates = ["Paulina", "Monica", "Mónica", "Camila", "Luciana", "Jorge", "Diego", "Marisol"];
+  for (const name of candidates) {
+    const v = cachedVoices.find(v=> (v.name||"").toLowerCase().includes(name.toLowerCase()));
+    if (v) return v;
+  }
+  return null;
+}
+function speak(text) {
+  try {
+    if (!("speechSynthesis" in window)) return;
+    const utter = new SpeechSynthesisUtterance(text);
+    const db = loadDB();
+    utter.volume = db.config.voice.volume ?? 1;
+    utter.rate = db.config.voice.rate ?? 1;
+    const voice = getSpanishVoice();
+    if (voice) utter.voice = voice;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utter);
+  } catch(e) {
+    console.warn("Voz no disponible:", e);
+  }
+}
+
+// ===== Estado UI =====
+const alumnoSection = document.getElementById("alumnoSection");
+const adminSection = document.getElementById("adminSection");
+const btnAlumno = document.getElementById("btnAlumno");
+const btnAdmin = document.getElementById("btnAdmin");
+
+btnAlumno.addEventListener("click", ()=>switchMode("alumno"));
+btnAdmin.addEventListener("click", ()=>switchMode("admin"));
+
+function switchMode(mode) {
+  if (mode === "alumno") {
+    alumnoSection.classList.remove("hidden");
+    adminSection.classList.add("hidden");
+    btnAlumno.classList.add("active"); btnAlumno.setAttribute("aria-pressed", "true");
+    btnAdmin.classList.remove("active"); btnAdmin.setAttribute("aria-pressed", "false");
+    resetAlumnoUI();
+  } else {
+    alumnoSection.classList.add("hidden");
+    adminSection.classList.remove("hidden");
+    btnAlumno.classList.remove("active"); btnAlumno.setAttribute("aria-pressed", "false");
+    btnAdmin.classList.add("active"); btnAdmin.setAttribute("aria-pressed", "true");
+    document.getElementById("adminLoginFeedback").textContent = "";
+    document.getElementById("formAdminLogin").reset();
+    document.getElementById("adminPanel").classList.add("hidden");
+  }
+}
+
+// ===== Lógica Modo Alumno =====
+let pinBuffer = "";
+const pinDisplay = document.getElementById("pinDisplay");
+const alumnoFeedback = document.getElementById("alumnoFeedback");
+const perfilCard = document.getElementById("alumnoPerfil");
+const perfilFoto = document.getElementById("perfilFoto");
+const perfilNombre = document.getElementById("perfilNombre");
+const perfilPaquete = document.getElementById("perfilPaquete");
+const perfilRestantes = document.getElementById("perfilRestantes");
+const perfilFechas = document.getElementById("perfilFechas");
+const perfilUltimoPago = document.getElementById("perfilUltimoPago");
+const btnMarcarAsistencia = document.getElementById("btnMarcarAsistencia");
+const btnReagendar = document.getElementById("btnReagendar");
+const btnCerrarSesion = document.getElementById("btnCerrarSesion");
+const agendaAlumno = document.getElementById("agendaAlumno");
+const formReagendar = document.getElementById("formReagendar");
+const listaAgenda = document.getElementById("listaAgenda");
+
+let alumnoActual = null;
+let alumnoInactivityTimer = null;
+
+function renderPin() {
+  const arr = ["—","—","—","—"];
+  for (let i=0;i<pinBuffer.length;i++) arr[i] = "•";
+  pinDisplay.textContent = arr.join(" ");
+}
+
+function resetAlumnoUI() {
+  pinBuffer = ""; renderPin();
+  alumnoFeedback.textContent = "";
+  alumnoFeedback.className = "feedback";
+  perfilCard.classList.add("hidden");
+  agendaAlumno.classList.add("hidden");
+  alumnoActual = null;
+  clearTimeout(alumnoInactivityTimer);
+}
+
+document.querySelectorAll(".keypad .key").forEach(btn => {
+  btn.addEventListener("click", ()=>{
+    const action = btn.dataset.action;
+    if (action === "borrar") {
+      pinBuffer = "";
+      renderPin();
+      return;
+    }
+    if (action === "entrar") {
+      entrarConPin();
+      return;
+    }
+    if (pinBuffer.length < 4) {
+      pinBuffer += btn.textContent.trim();
+      renderPin();
+      if (pinBuffer.length === 4) entrarConPin();
+    }
+  });
 });
 
-function speakEs(text){
-  try{
-    const u = new SpeechSynthesisUtterance(text);
-    const voices = speechSynthesis.getVoices();
-    const es = voices.find(v => /es-|Spanish|español/i.test((v.lang||'') + v.name));
-    if(es) u.voice = es;
-    u.rate = 1;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(u);
-  }catch(e){}
+function entrarConPin() {
+  if (pinBuffer.length !== 4) return;
+  const db = loadDB();
+  const alumno = db.alumnos.find(a => a.codigo === pinBuffer);
+  if (!alumno) {
+    alumnoFeedback.textContent = "Acceso denegado: código inexistente.";
+    alumnoFeedback.className = "feedback err";
+    speak("Acceso denegado");
+    pinBuffer = ""; renderPin();
+    return;
+  }
+  // Mostrar perfil
+  alumnoActual = alumno;
+  mostrarPerfilAlumno(alumno);
+  const ok = alumno.clasesRestantes > 0;
+  if (ok) {
+    alumnoFeedback.textContent = "Acceso autorizado";
+    alumnoFeedback.className = "feedback ok";
+    speak("Acceso autorizado");
+  } else {
+    alumnoFeedback.textContent = "Acceso denegado: sin clases disponibles";
+    alumnoFeedback.className = "feedback err";
+    speak("Acceso denegado");
+  }
+  // Auto limpiar sesión tras 30s si no hay interacción
+  clearTimeout(alumnoInactivityTimer);
+  alumnoInactivityTimer = setTimeout(()=>{
+    cerrarSesionAlumno();
+  }, 30000);
 }
-function todayISO(){ return new Date().toISOString().slice(0,10); }
-function uid(p='id'){ return p+'_'+Math.random().toString(36).slice(2,10); }
-function load(){const db={};for(const k of DB){db[k]=JSON.parse(localStorage.getItem(k)||'[]')}return db}
-function save(db){for(const k of DB){localStorage.setItem(k,JSON.stringify(db[k]||[]))}}
-const db = load();
 
-function getPinByStudentId(sid){ return db.pins.find(p=>p.student_id===sid)?.pin || null; }
-function setPinForStudent(sid, pin){
-  const found=db.pins.find(p=>p.student_id===sid);
-  if(found) found.pin=pin; else db.pins.push({student_id:sid,pin});
-  save(db);
+function mostrarPerfilAlumno(a) {
+  perfilCard.classList.remove("hidden");
+  perfilFoto.src = a.foto || "assets/default-avatar.png";
+  perfilNombre.textContent = a.nombre;
+  perfilPaquete.textContent = etiquetarPaquete(a.paquete);
+  perfilRestantes.textContent = a.clasesRestantes ?? 0;
+  perfilFechas.textContent = (a.inicio||"—") + " → " + (a.fin||"—");
+  const ultimo = (a.pagos||[]).slice(-1)[0];
+  perfilUltimoPago.textContent = ultimo ? `${mxn(ultimo.monto)} (${ultimo.metodo||"—"}) ${ultimo.fecha||""}` : "—";
+  // Re-agendar: sólo visible cuando le quede 1 clase, y se haya registrado un nuevo pago (después del último acceso)
+  actualizarBotonReagendar(a);
+  // Render de agenda
+  renderAgenda(a);
 }
-function isPinInUse(pin, exceptSid=null){ return !!db.pins.find(p=>p.pin===pin && p.student_id!==exceptSid); }
-function generatePin(){ let p; do{ p=Math.floor(Math.random()*10000).toString().padStart(4,'0'); }while(isPinInUse(p)); return p; }
 
-async function fileToDataURLResized(file, maxSize=360, quality=0.85){
-  return await new Promise((resolve,reject)=>{
-    const img=new Image();
-    img.onload=()=>{
-      let w=img.width,h=img.height;
-      if(w>h){ if(w>maxSize){ h*=maxSize/w; w=maxSize; } } else { if(h>maxSize){ w*=maxSize/h; h=maxSize; } }
-      const c=document.createElement('canvas'); c.width=Math.round(w); c.height=Math.round(h);
-      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-      resolve(c.toDataURL('image/jpeg',quality));
-    };
-    img.onerror=reject;
-    img.src=URL.createObjectURL(file);
+function etiquetarPaquete(p) {
+  const mapa = { "1":"Clase suelta (1)","2":"Dos clases (2)","4":"Cuatro clases (4)","6":"Seis clases (6)","8":"Ocho clases (8)","mes":"Mes completo" };
+  return mapa[p] || p;
+}
+
+function actualizarBotonReagendar(a) {
+  const puede = (a.clasesRestantes === 1);
+  btnReagendar.disabled = !puede;
+  btnReagendar.title = puede ? "Re-agendar requiere que se haya realizado un nuevo pago" : "Disponible cuando quede 1 clase";
+}
+
+btnMarcarAsistencia.addEventListener("click", ()=>{
+  if (!alumnoActual) return;
+  const db = loadDB();
+  const a = db.alumnos.find(x=> x.id === alumnoActual.id);
+  if (!a) return;
+  if ((a.clasesRestantes||0) <= 0) {
+    alumnoFeedback.textContent = "No hay clases disponibles";
+    alumnoFeedback.className = "feedback err";
+    speak("Acceso denegado");
+    return;
+  }
+  a.clasesRestantes = (a.clasesRestantes||0) - 1;
+  saveDB(db);
+  mostrarPerfilAlumno(a);
+  alumnoFeedback.textContent = "Asistencia registrada";
+  alumnoFeedback.className = "feedback ok";
+  speak("Acceso autorizado");
+});
+
+btnReagendar.addEventListener("click", ()=>{
+  if (!alumnoActual) return;
+  agendaAlumno.classList.toggle("hidden");
+});
+
+formReagendar.addEventListener("submit", (e)=>{
+  e.preventDefault();
+  if (!alumnoActual) return;
+  const db = loadDB();
+  const a = db.alumnos.find(x=> x.id === alumnoActual.id);
+  const fecha = document.getElementById("reagendarFecha").value;
+  if (!fecha) return;
+  // Reglas: sólo si hay un pago reciente (último pago en los últimos 7 días) o si clasesRestantes era 1
+  const ultimoPago = (a.pagos||[]).slice(-1)[0];
+  const tienePagoReciente = ultimoPago ? (Date.now() - new Date(ultimoPago.fecha||Date.now()).getTime() < 7*24*3600*1000) : false;
+  if ((a.clasesRestantes||0) > 1 && !tienePagoReciente) {
+    alert("Para re-agendar con más de 1 clase restante, registra primero el nuevo pago.");
+    return;
+  }
+  a.agenda = a.agenda || [];
+  a.agenda.push({ fecha });
+  saveDB(db);
+  renderAgenda(a);
+  alumnoFeedback.textContent = "Clase re-agendada";
+  alumnoFeedback.className = "feedback ok";
+});
+
+function renderAgenda(a) {
+  listaAgenda.innerHTML = "";
+  (a.agenda||[]).forEach((item, idx)=>{
+    const li = document.createElement("li");
+    const dt = new Date(item.fecha);
+    li.textContent = dt.toLocaleString();
+    const del = document.createElement("button");
+    del.textContent = "Eliminar";
+    del.className = "danger";
+    del.addEventListener("click", ()=>{
+      const db = loadDB();
+      const aa = db.alumnos.find(x=> x.id === a.id);
+      aa.agenda.splice(idx,1);
+      saveDB(db);
+      renderAgenda(aa);
+    });
+    li.appendChild(document.createTextNode(" "));
+    li.appendChild(del);
+    listaAgenda.appendChild(li);
   });
 }
 
-// --- Admin overlay login (robust on iPad) ---
-const overlay = $('#admin-overlay');
-const pinInput = $('#admin-pin-input');
-const pad = $('.pad', overlay);
-$('#mode-switch').addEventListener('change', ()=>{
-  const target = $('#mode-switch').value;
-  if(target==='admin'){
-    overlay.setAttribute('aria-hidden','false'); pinInput.value=''; pinInput.focus();
-  } else { mode='alumno'; applyMode(); }
-});
-$('#admin-cancel').addEventListener('click', ()=>{
-  overlay.setAttribute('aria-hidden','true'); $('#mode-switch').value='alumno'; mode='alumno'; applyMode();
-});
-pad.addEventListener('click', (e)=>{
-  const b=e.target.closest('button'); if(!b) return;
-  const k=b.dataset.k;
-  if(k==='OK'){
-    const p=pinInput.value.trim();
-    if(/^\d{4}$/.test(p) && p===cfg.admin_pin){ mode='admin'; overlay.setAttribute('aria-hidden','true'); applyMode(); }
-    else { alert('PIN incorrecto'); }
-    return;
-  }
-  if(k==='←'){ pinInput.value = pinInput.value.slice(0,-1); return; }
-  if(/\d/.test(k)){ if(pinInput.value.length<4) pinInput.value += k; return; }
-});
-
-function applyMode(){
-  $$('#tabs [data-admin]').forEach(el=>{ el.style.display = (mode==='admin') ? '' : 'none'; });
-  if(mode==='alumno'){ switchTo('kiosk'); }
+btnCerrarSesion.addEventListener("click", cerrarSesionAlumno);
+function cerrarSesionAlumno() {
+  resetAlumnoUI();
+  speak("Sesión cerrada");
 }
-function switchTo(tab){
-  $$('#tabs button').forEach(b=>b.classList.remove('active'));
-  $(`#tabs button[data-tab="${tab}"]`)?.classList.add('active');
-  $$('.tab').forEach(s=>s.classList.remove('active'));
-  $('#'+tab)?.classList.add('active');
-}
-$$('#tabs button[data-tab]').forEach(b=>b.addEventListener('click',()=>{
-  const tab=b.dataset.tab;
-  switchTo(tab);
-  renderAll();
-}));
 
-function fillClassSelect(sel){
-  sel.innerHTML='<option value="">Paquete (clases)</option>'+
-    PACKS.map(p=>`<option value="${p.id}" data-classes="${p.classes}" data-price="${p.price}">${p.name} — $${p.price} MXN</option>`).join('');
-}
-fillClassSelect($('#student-classes'));
-
-// Student add
-let pendingPhotoData='';
-$('#student-photo').addEventListener('change', async e=>{
-  const f=e.target.files[0]; if(!f) return;
-  try{ pendingPhotoData=await fileToDataURLResized(f); }catch(_){ alert('No se pudo procesar la foto'); pendingPhotoData=''; }
-});
-$('#student-classes').addEventListener('change', e=>{
-  const price = e.target.selectedOptions[0]?.dataset.price || 0;
-  $('#student-amount').value = price;
-});
-$('#form-student').addEventListener('submit', e=>{
+// ===== Lógica admin =====
+const formAdminLogin = document.getElementById("formAdminLogin");
+const adminLoginFeedback = document.getElementById("adminLoginFeedback");
+const adminPanel = document.getElementById("adminPanel");
+formAdminLogin.addEventListener("submit", (e)=>{
   e.preventDefault();
-  const fd=new FormData(e.target);
-  const name = fd.get('full_name'); const phone=fd.get('phone');
-  const packId = fd.get('classes'); const opt = $('#student-classes').selectedOptions[0];
-  if(!packId){ alert('Selecciona el paquete'); return; }
-  const classes = parseInt(opt.dataset.classes||'0',10);
-  const amount = parseFloat(fd.get('amount_mxn')||'0');
-  const payStatus = fd.get('payment_status')||'pendiente';
-  const sid = uid('stu');
-  const pin = generatePin();
-  const endDate = (()=>{ const d=new Date(); d.setMonth(d.getMonth()+1); return d.toISOString().slice(0,10) })();
-  const student = { student_id:sid, full_name:name, phone, photo_data: pendingPhotoData||'' };
-  db.students.push(student);
-  const enrId=uid('enr');
-  db.enrollments.push({ enrollment_id:enrId, student_id:sid, classes_total:classes, remaining_classes:classes, end_date:endDate, status:'activo', amount_mxn:amount });
-  db.payments.push({ payment_id:uid('pay'), enrollment_id:enrId, student_id:sid, date:todayISO(), amount_mxn:amount, method:'', status:payStatus, reference:'alta' });
-  db.pins.push({ student_id:sid, pin });
-  save(db);
-  alert(`Alumno agregado. PIN: ${pin}`);
-  e.target.reset(); pendingPhotoData='';
-  renderStudents(); renderPayments();
+  const pin = (document.getElementById("adminPin").value||"").trim();
+  const db = loadDB();
+  if (pin === db.config.adminPin) {
+    adminLoginFeedback.textContent = "Acceso de administrador concedido.";
+    adminLoginFeedback.className = "feedback ok";
+    adminPanel.classList.remove("hidden");
+    cargarTablaAlumnos();
+    cargarConfig();
+  } else {
+    adminLoginFeedback.textContent = "Código incorrecto.";
+    adminLoginFeedback.className = "feedback err";
+  }
 });
 
-function renderStudents(){
-  const tb=$('#table-students tbody'); tb.innerHTML='';
-  for(const s of db.students){
-    const enr = db.enrollments.find(e=>e.student_id===s.student_id && e.status==='activo') || db.enrollments.filter(e=>e.student_id===s.student_id).sort((a,b)=>b.end_date.localeCompare(a.end_date))[0];
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${s.photo_data?`<img src="${s.photo_data}" class="tbl-photo" alt="foto">`:'—'}</td>
-      <td>${s.full_name}</td><td>${s.phone||''}</td>
-      <td>${enr?enr.classes_total:0}</td><td>${enr?enr.remaining_classes:0}</td><td>${enr?enr.end_date||'-':'-'}</td>
-      <td><button data-act="open" data-id="${s.student_id}">Perfil</button></td>`;
-    tb.appendChild(tr);
-  }
-  tb.onclick = (e)=>{
-    const b=e.target.closest('button'); if(!b) return;
-    if(b.dataset.act==='open'){ openProfile(b.dataset.id); }
+const tablaAlumnosTbody = document.querySelector("#tablaAlumnos tbody");
+const btnNuevoAlumno = document.getElementById("btnNuevoAlumno");
+const inputImportar = document.getElementById("inputImportar");
+const btnExportar = document.getElementById("btnExportar");
+const searchAlumno = document.getElementById("searchAlumno");
+
+btnExportar.addEventListener("click", ()=>{
+  const db = loadDB();
+  const blob = new Blob([JSON.stringify(db, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "respaldo_academia.json";
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+inputImportar.addEventListener("change", (e)=>{
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try {
+      const json = JSON.parse(reader.result);
+      if (!json || typeof json !== "object") throw new Error("Formato inválido");
+      saveDB(json);
+      alert("Importación exitosa");
+      cargarTablaAlumnos();
+      cargarConfig();
+    } catch(err) {
+      alert("Error al importar: " + err.message);
+    }
   };
+  reader.readAsText(file);
+});
+
+btnNuevoAlumno.addEventListener("click", ()=> abrirModalAlumno());
+
+searchAlumno.addEventListener("input", cargarTablaAlumnos);
+
+function cargarTablaAlumnos() {
+  const db = loadDB();
+  const term = (searchAlumno.value||"").toLowerCase();
+  const fil = db.alumnos.filter(a=> !term || a.nombre.toLowerCase().includes(term) || (a.codigo||"").includes(term));
+  tablaAlumnosTbody.innerHTML = "";
+  fil.forEach(a => {
+    const tr = document.createElement("tr");
+    const img = document.createElement("img"); img.src = a.foto || "assets/default-avatar.png";
+    const fotoTd = document.createElement("td"); fotoTd.appendChild(img);
+    const acciones = document.createElement("td");
+    const btnEditar = document.createElement("button"); btnEditar.textContent = "Editar"; btnEditar.addEventListener("click", ()=> abrirModalAlumno(a.id));
+    const btnEliminar = document.createElement("button"); btnEliminar.textContent = "Eliminar"; btnEliminar.className = "danger";
+    btnEliminar.addEventListener("click", ()=>{
+      if (!confirm("¿Eliminar alumno?")) return;
+      const db2 = loadDB();
+      db2.alumnos = db2.alumnos.filter(x=> x.id !== a.id);
+      saveDB(db2);
+      cargarTablaAlumnos();
+    });
+    acciones.append(btnEditar, document.createTextNode(" "), btnEliminar);
+
+    tr.innerHTML = `
+      <td></td>
+      <td>${a.nombre}</td>
+      <td>${a.codigo}</td>
+      <td>${etiquetarPaquete(a.paquete)}</td>
+      <td>${a.clasesRestantes ?? 0}</td>
+      <td>${(a.inicio||"—")} → ${(a.fin||"—")}</td>
+    `;
+    tr.children[0].appendChild(img);
+    tr.appendChild(acciones);
+    tablaAlumnosTbody.appendChild(tr);
+  });
 }
 
-function openProfile(sid){
-  const s = db.students.find(x=>x.student_id===sid); if(!s) return;
-  const enr = db.enrollments.find(e=>e.student_id===sid && e.status==='activo') || db.enrollments.filter(e=>e.student_id===sid).sort((a,b)=>b.end_date.localeCompare(a.end_date))[0];
-  $('#student-profile').style.display='block';
-  $('#sp-name').textContent = s.full_name;
-  $('#sp-photo').src = s.photo_data || 'icons/icon-192.png';
-  $('#sp-full_name').value = s.full_name||'';
-  $('#sp-phone').value = s.phone||'';
-  fillClassSelect($('#sp-classes'));
-  if(enr){ $('#sp-classes').value = 'P'+(enr.classes_total||1); }
-  $('#sp-amount').value = enr? (enr.amount_mxn||0) : 0;
-  const lastPay = db.payments.filter(p=>p.enrollment_id===enr?.enrollment_id).sort((a,b)=>b.date.localeCompare(a.date))[0];
-  $('#sp-payment').value = (lastPay?.status)||'pendiente';
-  $('#sp-end').value = enr? (enr.end_date||'') : '';
-  $('#sp-photo-btn').onclick = ()=>{
-    const input=document.createElement('input'); input.type='file'; input.accept='image/*'; input.capture='environment';
-    input.onchange = async ()=>{
-      const f=input.files[0]; if(!f) return;
-      try{ s.photo_data=await fileToDataURLResized(f); save(db); openProfile(sid); renderStudents(); }catch(_){ alert('No se pudo procesar la foto'); }
-    };
-    input.click();
+// ===== Modal Alumno (crear/editar) =====
+const modalAlumno = document.getElementById("modalAlumno");
+const formAlumno = document.getElementById("formAlumno");
+const modalAlumnoTitulo = document.getElementById("modalAlumnoTitulo");
+
+const alNombre = document.getElementById("alNombre");
+const alCodigo = document.getElementById("alCodigo");
+const alPaquete = document.getElementById("alPaquete");
+const alMonto = document.getElementById("alMonto");
+const alInicio = document.getElementById("alInicio");
+const alFin = document.getElementById("alFin");
+const alTel = document.getElementById("alTel");
+const alTelEmerg = document.getElementById("alTelEmerg");
+const alFNac = document.getElementById("alFNac");
+const alEdad = document.getElementById("alEdad");
+const alDir = document.getElementById("alDir");
+const alFormaPago = document.getElementById("alFormaPago");
+const alFoto = document.getElementById("alFoto");
+const alPagos = document.getElementById("alPagos");
+const btnAgregarPago = document.getElementById("btnAgregarPago");
+const pagoTemplate = document.getElementById("pagoTemplate");
+
+let editAlumnoId = null;
+
+function abrirModalAlumno(id=null) {
+  editAlumnoId = id;
+  const db = loadDB();
+  const cfg = db.config;
+  // Prellenar
+  alPagos.innerHTML = "";
+  if (id) {
+    const a = db.alumnos.find(x=> x.id === id);
+    modalAlumnoTitulo.textContent = "Editar alumno";
+    alNombre.value = a.nombre || "";
+    alCodigo.value = a.codigo || "";
+    alPaquete.value = a.paquete || "1";
+    alMonto.value = a.monto || cfg.precios[a.paquete] || 0;
+    alInicio.value = a.inicio || "";
+    alFin.value = a.fin || "";
+    alTel.value = a.tel || "";
+    alTelEmerg.value = a.telEmerg || "";
+    alFNac.value = a.fnac || "";
+    alEdad.value = a.edad || "";
+    alDir.value = a.dir || "";
+    alFormaPago.value = a.formaPago || "";
+    (a.pagos||[]).forEach(p=> agregarPagoUI(p));
+  } else {
+    modalAlumnoTitulo.textContent = "Nuevo alumno";
+    alNombre.value = "";
+    alCodigo.value = "";
+    alPaquete.value = "4";
+    alMonto.value = cfg.precios["4"];
+    const today = new Date();
+    alInicio.value = today.toISOString().slice(0,10);
+    const fin = new Date(today);
+    fin.setDate(fin.getDate()+30);
+    alFin.value = fin.toISOString().slice(0,10);
+    alTel.value = "";
+    alTelEmerg.value = "";
+    alFNac.value = "";
+    alEdad.value = "";
+    alDir.value = "";
+    alFormaPago.value = "";
+  }
+  if (typeof modalAlumno.showModal === "function") modalAlumno.showModal();
+  else modalAlumno.classList.remove("hidden");
+}
+
+alPaquete.addEventListener("change", ()=>{
+  const db = loadDB();
+  alMonto.value = db.config.precios[alPaquete.value] || 0;
+});
+
+btnAgregarPago.addEventListener("click", ()=> agregarPagoUI());
+
+function agregarPagoUI(pago=null) {
+  const clone = pagoTemplate.content.cloneNode(true);
+  const container = clone.querySelector(".pago-item");
+  const monto = clone.querySelector(".pago-monto");
+  const metodo = clone.querySelector(".pago-metodo");
+  const fecha = clone.querySelector(".pago-fecha");
+  const nota = clone.querySelector(".pago-nota");
+  const del = clone.querySelector(".pago-eliminar");
+  if (pago) {
+    monto.value = pago.monto ?? "";
+    metodo.value = pago.metodo ?? "";
+    fecha.value = pago.fecha ?? "";
+    nota.value = pago.nota ?? "";
+  } else {
+    fecha.value = new Date().toISOString().slice(0,10);
+  }
+  del.addEventListener("click", ()=> container.remove());
+  alPagos.appendChild(clone);
+}
+
+formAlumno.addEventListener("close", ()=>{
+  // noop
+});
+
+formAlumno.addEventListener("submit", (e)=>{
+  // Este evento no se dispara en <dialog> con method="dialog"; manejamos más abajo en botones
+});
+
+modalAlumno.addEventListener("close", ()=>{/* noop */});
+
+// Interceptar el click del botón "Guardar" del dialog
+formAlumno.querySelector('button[value="confirm"]').addEventListener("click", (ev)=>{
+  ev.preventDefault();
+  if (!alNombre.value.trim()) return alert("Falta el nombre");
+  if (!/^\d{4}$/.test(alCodigo.value)) return alert("El código debe ser de 4 dígitos");
+  const db = loadDB();
+  // Unicidad de código
+  const exists = db.alumnos.find(a=> a.codigo === alCodigo.value && a.id !== editAlumnoId);
+  if (exists) return alert("Ese código ya está en uso por " + exists.nombre);
+
+  const pagos = [];
+  alPagos.querySelectorAll(".pago-item").forEach(div => {
+    pagos.push({
+      monto: Number(div.querySelector(".pago-monto").value||0),
+      metodo: div.querySelector(".pago-metodo").value||"",
+      fecha: div.querySelector(".pago-fecha").value||"",
+      nota: div.querySelector(".pago-nota").value||""
+    });
+  });
+
+  const baseAlumno = {
+    nombre: alNombre.value.trim(),
+    codigo: alCodigo.value.trim(),
+    paquete: alPaquete.value,
+    monto: Number(alMonto.value||0),
+    inicio: alInicio.value || "",
+    fin: alFin.value || "",
+    tel: alTel.value || "",
+    telEmerg: alTelEmerg.value || "",
+    fnac: alFNac.value || "",
+    edad: alEdad.value || "",
+    dir: alDir.value || "",
+    formaPago: alFormaPago.value || "",
+    pagos,
   };
-  $('#sp-save').onclick = ()=>{
-    s.full_name = $('#sp-full_name').value.trim()||s.full_name;
-    s.phone = $('#sp-phone').value.trim();
-    if(enr){
-      const opt = $('#sp-classes').selectedOptions[0];
-      if(opt){
-        const classes = parseInt(opt.dataset.classes||'0',10);
-        const diff = classes - (enr.classes_total||0);
-        enr.classes_total = classes;
-        enr.remaining_classes = Math.max(0, (enr.remaining_classes||0) + diff);
+
+  // Foto
+  const photoInput = alFoto;
+  const finalize = (fotoDataUrl)=>{
+    baseAlumno.foto = fotoDataUrl || (editAlumnoId ? (db.alumnos.find(x=>x.id===editAlumnoId)?.foto||"") : "");
+    // clacular clasesRestantes iniciales en base al paquete si no existía
+    const paqueteMap = { "1":1,"2":2,"4":4,"6":6,"8":8,"mes": 9999 }; // "mes" se maneja como grande
+    if (editAlumnoId) {
+      const idx = db.alumnos.findIndex(x=> x.id === editAlumnoId);
+      if (idx >= 0) {
+        // conservar clasesRestantes si existe
+        baseAlumno.id = db.alumnos[idx].id;
+        baseAlumno.clasesRestantes = db.alumnos[idx].clasesRestantes ?? paqueteMap[baseAlumno.paquete] ?? 0;
+        baseAlumno.agenda = db.alumnos[idx].agenda || [];
+        db.alumnos[idx] = baseAlumno;
       }
-      enr.amount_mxn = parseFloat($('#sp-amount').value||'0');
-      enr.end_date = $('#sp-end').value || enr.end_date;
-      if(lastPay && lastPay.status==='pendiente'){ lastPay.amount_mxn = enr.amount_mxn; }
-      const st = $('#sp-payment').value;
-      if(lastPay){ lastPay.status = st; }
-      else { db.payments.push({ payment_id:uid('pay'), enrollment_id:enr.enrollment_id, student_id:sid, date:todayISO(), amount_mxn:enr.amount_mxn||0, method:'', status:st, reference:'ajuste' }); }
+    } else {
+      baseAlumno.id = crypto.randomUUID();
+      baseAlumno.clasesRestantes = paqueteMap[baseAlumno.paquete] ?? 0;
+      baseAlumno.agenda = [];
+      db.alumnos.push(baseAlumno);
     }
-    save(db); renderStudents(); openProfile(sid);
-    alert('Cambios guardados');
+    saveDB(db);
+    modalAlumno.close();
+    cargarTablaAlumnos();
   };
-  $('#sp-close').onclick = ()=>{
-    if(enr){ enr.status='vencido'; save(db); renderStudents(); openProfile(sid); }
-  };
-  $('#sp-reagenda').onclick = ()=>{
-    if(!enr){ alert('Sin paquete activo'); return; }
-    if((enr.remaining_classes||0)!==1){ alert('Solo se puede reagendar cuando queda 1 clase.'); return; }
-    const payOk = !!db.payments.find(p=>p.enrollment_id===enr.enrollment_id && p.status==='pagado');
-    if(!payOk){ alert('Para reagendar, el pago del paquete actual debe estar PAGADO.'); return; }
-    const d=new Date(); d.setMonth(d.getMonth()+1);
-    const newEnr = { enrollment_id:uid('enr'), student_id:sid, classes_total:enr.classes_total, remaining_classes:enr.classes_total, end_date:d.toISOString().slice(0,10), status:'activo', amount_mxn:enr.amount_mxn||0 };
-    enr.status='vencido';
-    db.enrollments.push(newEnr);
-    db.payments.push({ payment_id:uid('pay'), enrollment_id:newEnr.enrollment_id, student_id:sid, date:todayISO(), amount_mxn:newEnr.amount_mxn||0, method:'', status:'pendiente', reference:'reagendado v3' });
-    save(db); renderStudents(); openProfile(sid);
-    alert('Reagendado. Se creó un nuevo paquete con pago PENDIENTE.');
-  };
-  // Payment history with "Pagar ahora"
-  const tb=$('#table-sp-payments tbody'); tb.innerHTML='';
-  const rows = db.payments.filter(p=>p.student_id===sid).sort((a,b)=>b.date.localeCompare(a.date));
-  for(const p of rows){
-    const tr=document.createElement('tr');
-    const btn = (p.status==='pendiente') ? `<button data-act="paynow" data-id="${p.payment_id}">Pagar ahora</button>` : '';
-    tr.innerHTML = `<td>${p.date}</td><td>${(p.amount_mxn||0).toFixed(2)}</td><td>${p.method||''}</td><td>${p.status}</td><td>${p.reference||''}</td><td>${btn}</td>`;
-    tb.appendChild(tr);
-  }
-  tb.onclick = (e)=>{
-    const b=e.target.closest('button'); if(!b) return;
-    if(b.dataset.act==='paynow'){
-      const pay = db.payments.find(x=>x.payment_id===b.dataset.id);
-      if(pay){ pay.status='pagado'; save(db); openProfile(sid); renderPayments(); alert('Pago marcado como PAGADO'); }
-    }
-  };
-}
 
-// Payments section
-function renderPaymentSelectors(){
-  const sel=$('#form-payment select[name="student_id"]');
-  sel.innerHTML='<option value="">(alumno)</option>'+db.students.map(s=>`<option value="${s.student_id}">${s.full_name}</option>`).join('');
+  if (photoInput.files && photoInput.files[0]) {
+    const reader = new FileReader();
+    reader.onload = ()=> finalize(reader.result);
+    reader.readAsDataURL(photoInput.files[0]);
+  } else {
+    finalize(null);
+  }
+});
+
+formAlumno.querySelector('button[value="cancel"]').addEventListener("click", (ev)=>{
+  ev.preventDefault();
+  modalAlumno.close();
+});
+
+// ===== Configuración =====
+const formConfig = document.getElementById("formConfig");
+const cfgAdminPin = document.getElementById("cfgAdminPin");
+const precioInputs = {
+  "1": document.getElementById("precio1"),
+  "2": document.getElementById("precio2"),
+  "4": document.getElementById("precio4"),
+  "6": document.getElementById("precio6"),
+  "8": document.getElementById("precio8"),
+  "mes": document.getElementById("precioMes"),
+};
+const voiceVolume = document.getElementById("voiceVolume");
+const voiceRate = document.getElementById("voiceRate");
+const probarVoz = document.getElementById("probarVoz");
+
+function cargarConfig() {
+  const db = loadDB();
+  cfgAdminPin.value = db.config.adminPin || "";
+  for (const k of Object.keys(precioInputs)) {
+    precioInputs[k].value = db.config.precios[k] ?? 0;
+  }
+  voiceVolume.value = db.config.voice.volume ?? 1;
+  voiceRate.value = db.config.voice.rate ?? 1.0;
 }
-$('#form-payment').addEventListener('submit', e=>{
+formConfig.addEventListener("submit", (e)=>{
   e.preventDefault();
-  const fd=new FormData(e.target);
-  const sid=fd.get('student_id'); if(!sid){ alert('Elige alumno'); return; }
-  const en = db.enrollments.find(x=>x.student_id===sid && x.status==='activo'); if(!en){ alert('Alumno sin paquete activo'); return; }
-  db.payments.push({ payment_id:uid('pay'), enrollment_id:en.enrollment_id, student_id:sid, date:todayISO(), amount_mxn:parseFloat(fd.get('amount_mxn')||'0'), method:fd.get('method')||'', status:fd.get('status')||'pendiente', reference:fd.get('reference')||'' });
-  save(db); e.target.reset(); renderPayments();
-});
-function renderPayments(){
-  const tb=$('#table-payments tbody'); tb.innerHTML='';
-  const rows=db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date));
-  for(const p of rows){
-    const s=db.students.find(x=>x.student_id===p.student_id);
-    const btn = (p.status==='pendiente') ? `<button data-act="paynow" data-id="${p.payment_id}">Pagar ahora</button>` : '';
-    const tr=document.createElement('tr');
-    tr.innerHTML = `<td>${p.date}</td><td>${s?s.full_name:''}</td><td>${p.method||''}</td><td>${(p.amount_mxn||0).toFixed(2)}</td><td>${p.status||''}</td><td>${p.reference||''}</td><td>${btn}</td>`;
-    tb.appendChild(tr);
+  const db = loadDB();
+  db.config.adminPin = cfgAdminPin.value || db.config.adminPin;
+  for (const k of Object.keys(precioInputs)) {
+    db.config.precios[k] = Number(precioInputs[k].value||0);
   }
-  tb.onclick = (e)=>{
-    const b=e.target.closest('button'); if(!b) return;
-    if(b.dataset.act==='paynow'){
-      const pay = db.payments.find(x=>x.payment_id===b.dataset.id);
-      if(pay){ pay.status='pagado'; save(db); renderPayments(); alert('Pago marcado como PAGADO'); }
-    }
+  db.config.voice.volume = Number(voiceVolume.value||1);
+  db.config.voice.rate = Number(voiceRate.value||1);
+  saveDB(db);
+  alert("Configuración guardada");
+});
+probarVoz.addEventListener("click", ()=>{
+  speak("Esta es una prueba de voz en español. Acceso autorizado.");
+});
+
+// ===== Inicialización =====
+switchMode("alumno");
+
+// Asegurar que las voces estén cargadas
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = ()=>{
+    cachedVoices = window.speechSynthesis.getVoices();
   };
 }
-
-// Attendance (Alumno kiosk)
-function renderAttendance(){
-  const tb=$('#table-attendance tbody'); tb.innerHTML='';
-  const rows = db.attendance.filter(a=>a.date===todayISO() && (!currentKioskStudentId || a.student_id===currentKioskStudentId));
-  for(const a of rows){
-    const s=db.students.find(x=>x.student_id===a.student_id);
-    const tr=document.createElement('tr');
-    tr.innerHTML = `<td>${a.date}</td><td>${s?s.full_name:''}</td><td>${a.group||'General'}</td><td>Sí</td>`;
-    tb.appendChild(tr);
-  }
-}
-function showKioskProfile(sid){
-  currentKioskStudentId = sid;
-  const box = $('#kiosk-profile');
-  const s=db.students.find(x=>x.student_id===sid);
-  const en = db.enrollments.find(e=>e.student_id===sid && e.status==='activo');
-  const rest = en ? en.remaining_classes : 0;
-  const img = s?.photo_data ? `<img src="${s.photo_data}" alt="foto">` : `<img src="icons/icon-192.png" alt="foto">`;
-  box.innerHTML = `${img}<div class="info"><div class="name">${s?s.full_name:''}</div><div class="meta">Restantes: ${rest}</div><div class="meta">Hoy: ${todayISO()}</div></div>`;
-  box.style.display='flex';
-  renderAttendance();
-  if(kioskTimer) clearTimeout(kioskTimer);
-  kioskTimer = setTimeout(clearKiosk, 12000);
-}
-function clearKiosk(){
-  currentKioskStudentId = null;
-  $('#kiosk-profile').style.display='none'; $('#kiosk-profile').innerHTML='';
-  renderAttendance();
-}
-$('#form-pin input[name="pin"]').addEventListener('input', ()=>{ if(kioskTimer) clearTimeout(kioskTimer); clearKiosk(); });
-$('#form-pin').addEventListener('submit', e=>{
-  e.preventDefault();
-  const pin=(new FormData(e.target).get('pin')||'').trim();
-  const rec=db.pins.find(p=>p.pin===pin);
-  if(!rec){ alert('PIN incorrecto'); speakEs(cfg.voice_deny); return; }
-  const sid=rec.student_id;
-  const en = db.enrollments.find(e=>e.student_id===sid && e.status==='activo');
-  const paid = en && db.payments.find(p=>p.enrollment_id===en.enrollment_id && p.status==='pagado');
-  if(!en || !paid){ alert('Acceso denegado: pago pendiente o sin paquete activo.'); speakEs(cfg.voice_deny); return; }
-  if(en.remaining_classes<=0){ alert('No quedan clases.'); speakEs(cfg.voice_deny); return; }
-  db.attendance.push({ attendance_id:uid('att'), student_id:sid, date:todayISO(), group:'General' });
-  en.remaining_classes -= 1;
-  save(db);
-  speakEs(cfg.voice_ok);
-  e.target.reset();
-  showKioskProfile(sid);
-}
-
-// Reports
-function renderReports(){
-  const ym = todayISO().slice(0,7);
-  const att = db.attendance.filter(a=>a.date.startsWith(ym)).length;
-  const income = db.payments.filter(p=>p.date.startsWith(ym)&&p.status==='pagado').reduce((s,x)=>s+(+x.amount_mxn||0),0);
-  $('#r-att-month').textContent=att;
-  $('#r-income-month').textContent=`$ ${income.toFixed(2)} MXN`;
-}
-
-// Config
-$('#cfg-save').addEventListener('click', ()=>{
-  const pin=$('#cfg-admin-pin').value.trim()||cfg.admin_pin;
-  if(!/^\d{4}$/.test(pin)){ alert('PIN Admin inválido'); return; }
-  cfg={ brand: $('#cfg-brand').value || 'Academia NH v3', admin_pin: pin, voice_ok: $('#cfg-voice-ok').value || 'Acceso otorgado', voice_deny: $('#cfg-voice-deny').value || 'Acceso denegado' };
-  cfgSave(cfg); document.title=cfg.brand; $('#brand-title').textContent=cfg.brand;
-  alert('Configuración guardada');
-});
-$('#cfg-clear').addEventListener('click', async ()=>{
-  try{
-    if('caches' in window){ const keys=await caches.keys(); await Promise.all(keys.map(k=>caches.delete(k))); }
-    if('serviceWorker' in navigator){ const regs=await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister())); }
-  }catch(e){}
-  alert('Caché borrada. Se recargará.');
-  location.replace(location.pathname+'?v=clean4');
-});
-
-function renderAll(){
-  renderStudents(); renderPaymentSelectors(); renderPayments(); renderAttendance(); renderReports(); applyMode();
-}
-renderAll();
-})();
