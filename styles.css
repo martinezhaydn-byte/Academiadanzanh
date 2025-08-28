@@ -42,3 +42,13 @@ button,input,select,textarea{touch-action:manipulation}
 .alerts{border:1px solid #3a2a00;background:#1a1200;color:#fbbf24;border-radius:12px;padding:10px;margin:8px 0 16px;display:none}
 .alerts.active{display:block}
 .badge{display:inline-block;border:1px solid #665200;background:#332a00;color:#fbbf24;border-radius:999px;padding:2px 8px;font-size:.8rem;margin-left:6px}
+.alumno-panel{display:none;gap:12px;align-items:center;justify-content:center;margin:10px 0}
+.alumno-panel.active{display:flex}
+.alumno-panel img{width:88px;height:88px;border-radius:12px;border:1px solid #333;object-fit:cover;background:#000}
+.alumno-nombre{font-weight:600;font-size:1.1rem}
+.muted{opacity:.8}
+
+.payments-table{border:1px solid #2a2a2a;background:#131313;border-radius:12px;padding:10px;margin:8px 0;max-height:45vh;overflow:auto}
+.payments-table table{width:100%;border-collapse:collapse}
+.payments-table th,.payments-table td{border-bottom:1px solid #222;padding:8px;text-align:left;font-size:.95rem}
+.payments-table th{opacity:.8}

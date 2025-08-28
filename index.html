@@ -11,7 +11,7 @@
 <body>
   <header>
     <h1>Academia de Danza NH</h1>
-    <p class="subtitle">App limpia • iPad & Android</p>
+    <p class="subtitle">App renovada — iPad & Android</p>
   </header>
 
   <main id="view-home" class="view active" role="main">
@@ -38,6 +38,15 @@
       <button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button>
       <button data-key="del">⌫</button><button data-key="0">0</button><button data-key="ok">OK</button>
     </div>
+
+    <div id="alumno-panel" class="alumno-panel">
+      <img id="alumno-foto" alt="Foto" />
+      <div class="alumno-info">
+        <div id="alumno-nombre" class="alumno-nombre"></div>
+        <div id="alumno-paquete" class="alumno-paquete muted"></div>
+      </div>
+    </div>
+
     <div id="alumno-msg" class="msg" aria-live="assertive"></div>
   </main>
 
@@ -83,12 +92,12 @@
         </label>
         <button id="btn-save-admin-pin">Guardar PIN</button>
 
-        <label>Voz (español México)
+        <label>Voz (español claro)
           <span class="row">
             <input id="voice-enabled" type="checkbox" checked> Activar voz
-            <button id="btn-test-voice" type="button">Probar voz</button>
             <select id="voice-select" title="Voz preferida"></select>
-            <span id="voice-status" class="muted" style="margin-left:8px"></span>
+            <button id="btn-test-voice" type="button">Probar voz</button>
+            <span id="voice-status" class="muted"></span>
           </span>
         </label>
       </details>
@@ -146,10 +155,11 @@
     </form>
   </dialog>
 
-  <!-- Dialog Reagendar -->
+  <!-- Dialog Reagendar (requiere pago) -->
   <dialog id="dlg-resched">
     <form method="dialog" id="form-resched">
       <h3>Reagendar paquete</h3>
+      <p class="muted" id="resched-note">Requiere registrar el nuevo pago si es renovación.</p>
       <label>Tipo
         <select name="pkgType" required>
           <option value="suelta">Clase suelta</option>
@@ -172,7 +182,39 @@
     </form>
   </dialog>
 
-  <footer><small>ADNH • App limpia • v1.0</small></footer>
+  <footer><small>ADNH • App renovada • v1.0</small></footer>
   <script src="app.js"></script>
+
+  <!-- Dialog Payments (list) -->
+  <dialog id="dlg-payments">
+    <form method="dialog" id="form-payments">
+      <h3>Pagos del alumno</h3>
+      <div id="payments-table" class="payments-table"></div>
+      <menu>
+        <button id="btn-add-payment" type="button" class="primary">Registrar pago</button>
+        <button value="close">Cerrar</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <!-- Dialog New Payment -->
+  <dialog id="dlg-payment">
+    <form method="dialog" id="form-payment">
+      <h3>Registrar pago</h3>
+      <label>Monto <input name="amount" type="number" min="0" step="1" required></label>
+      <label>Método
+        <select name="method" required>
+          <option value="Efectivo">Efectivo</option>
+          <option value="Transferencia">Transferencia</option>
+        </select>
+      </label>
+      <label>Nota <input name="note" placeholder="Opcional"></label>
+      <menu>
+        <button value="cancel">Cancelar</button>
+        <button id="btn-save-payment" value="save" class="primary">Guardar</button>
+      </menu>
+    </form>
+  </dialog>
+
 </body>
 </html>
