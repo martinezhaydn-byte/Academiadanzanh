@@ -1,6 +1,6 @@
 
-// Academia NH — Accesos v6
-// Nuevos: Quick List (A–Z) y Re-agendar desde Perfil cuando queda 1 clase
+// Academia NH — Accesos v7
+// Fixes: voz "Mónica" robusta + flujo "Nuevo alumno" para no sobrescribir, lista estable
 
 const $ = (sel, parent=document)=>parent.querySelector(sel);
 const $$ = (sel, parent=document)=>Array.from(parent.querySelectorAll(sel));
@@ -12,7 +12,9 @@ const state = {
   selectedMonth: null,
   selectedDays: new Set(),
   currentProfilePin: null,
-  historyVisible: false
+  historyVisible: false,
+  voicesReady: false,
+  voiceList: [],
 };
 
 // PWA
@@ -32,29 +34,71 @@ function clamp(n,min,max){return Math.max(min,Math.min(max,n));}
 function banner(msg, ms=4000){ const el=$('#banner'); el.textContent=msg; el.classList.remove('hidden'); setTimeout(()=>el.classList.add('hidden'), ms); }
 function nextMonthYM(){ const d=new Date(); return ymISO(new Date(d.getFullYear(), d.getMonth()+1, 1)); }
 
-// Voz preferida "Mónica" (español)
-function preferredSpanishVoice(){
-  if (!('speechSynthesis' in window)) return null;
-  const list = speechSynthesis.getVoices();
-  if (!list || !list.length) return null;
+// ---------- Voz: carga robusta y preferencia persistida ----------
+const VOICE_PREF_KEY = 'voiceNamePref';
+function loadVoices(){
+  try{
+    state.voiceList = speechSynthesis.getVoices() || [];
+    state.voicesReady = state.voiceList.length>0;
+    populateVoicesUI();
+  }catch(e){ state.voiceList=[]; state.voicesReady=false; }
+}
+function pickPreferredVoice(){
+  const prefName = localStorage.getItem(VOICE_PREF_KEY) || '';
+  const list = state.voiceList.length ? state.voiceList : (speechSynthesis.getVoices()||[]);
+  // 1) Si el usuario guardó una voz existente, tomarla
+  if (prefName){
+    const v = list.find(x=>x.name===prefName);
+    if (v) return v;
+  }
+  // 2) Buscar "Mónica/Monica" en español
   const byName = list.find(v=>/^es[-_]/i.test(v.lang) && /m[oó]nica/i.test(v.name));
   if (byName) return byName;
+  // 3) Otras voces ES comunes como fallback
+  const candidates = ['Paulina','Sabina','Conchita','Lucia','Camila','Google español','Microsoft'];
+  const c = list.find(v=>/^es[-_]/i.test(v.lang) && candidates.some(k=>v.name.toLowerCase().includes(k.toLowerCase())));
+  if (c) return c;
+  // 4) Cualquier español
   const anyEs = list.find(v=>/^es[-_]/i.test(v.lang));
-  return anyEs || list[0];
+  if (anyEs) return anyEs;
+  // 5) Último recurso
+  return list[0] || null;
 }
 function speak(text){
   try{
     if ('speechSynthesis' in window){
+      if (!state.voicesReady){
+        loadVoices();
+      }
       const u = new SpeechSynthesisUtterance(text);
-      const v = preferredSpanishVoice();
+      const v = pickPreferredVoice();
       if (v){ u.voice=v; u.lang=v.lang; } else { u.lang='es-MX'; }
-      u.rate = 0.98; window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); return;
+      u.rate = 0.98; u.pitch = 1.0; u.volume = 1.0;
+      // iOS/Android "resume" hack por si quedó pausado
+      try{ speechSynthesis.resume(); }catch{}
+      try{ speechSynthesis.cancel(); }catch{}
+      speechSynthesis.speak(u);
+      return;
     }
   }catch(e){}
   const beep = $('#beep'); if (beep){ beep.currentTime=0; beep.play(); }
 }
+function populateVoicesUI(){
+  const sel=$('#ajVoz'); if(!sel) return;
+  sel.innerHTML='';
+  const list = state.voiceList;
+  const oAuto=document.createElement('option'); oAuto.value=''; oAuto.textContent='Automática (Mónica/ES)'; sel.appendChild(oAuto);
+  list.forEach(v=>{ const o=document.createElement('option'); o.value=v.name; o.textContent=`${v.name} (${v.lang})`; sel.appendChild(o); });
+  const pref = localStorage.getItem(VOICE_PREF_KEY)||''; sel.value = pref;
+}
+document.addEventListener('visibilitychange', ()=>{ if (document.visibilityState==='visible' && 'speechSynthesis' in window){ try{ speechSynthesis.resume(); }catch{} } });
+window.addEventListener('pageshow', ()=>{ if ('speechSynthesis' in window){ try{ speechSynthesis.resume(); }catch{} } });
+if ('speechSynthesis' in window){
+  // Algunas plataformas cargan voces asíncronamente
+  speechSynthesis.onvoiceschanged = ()=>{ state.voicesReady=false; loadVoices(); };
+}
 
-// Storage
+// ---------- Storage ----------
 const DB = {
   getStudents(){ try{return JSON.parse(localStorage.getItem('students')||'{}')}catch{ return {}; } },
   setStudents(o){ localStorage.setItem('students', JSON.stringify(o)); },
@@ -67,11 +111,12 @@ const DB = {
 function ensureDefaults(){
   const s=DB.getSettings();
   if (!s.prices){ s.prices={}; for(let i=1;i<=12;i++) s.prices[i]=0; }
+  if (s.voiceName===undefined) s.voiceName=''; // preferencia de voz
   DB.setSettings(s);
   if (!localStorage.getItem('adminPin')) DB.setAdminPin('1234');
 }
 
-// Schedules & history
+// ---------- Schedules & history ----------
 function sweepExpired(){
   const students=DB.getStudents(); const today=todayISO(); let changed=false;
   for (const pin of Object.keys(students)){
@@ -111,7 +156,7 @@ function monthEndForStudent(stu){
   return null;
 }
 
-// Modes & keypads
+// ---------- Modes & Keypads ----------
 function setMode(mode){
   state.activeMode=mode;
   $('#alumno').classList.toggle('hidden', mode!=='alumno');
@@ -136,7 +181,7 @@ function updateDots(sel, len){ $$(sel+' span').forEach((s,i)=> s.textContent=(i<
 attachKeypad($('.keypad[data-target="student"]'));
 attachKeypad($('.keypad[data-target="admin"]'));
 
-// Student enter
+// ---------- Student enter ----------
 $('#studentEnter').addEventListener('click', ()=>{
   const pin=state.studentPin;
   if (pin.length!==4){ speak('Ingrese 4 dígitos'); return; }
@@ -180,16 +225,16 @@ $('#studentEnter').addEventListener('click', ()=>{
 });
 function autoClearAlumno(){ setTimeout(()=>{ state.studentPin=''; updateDots('#studentPinDisplay',0); $('#alumnoResult').classList.add('hidden'); }, 8000); }
 
-// Admin enter
+// ---------- Admin enter ----------
 $('#adminEnter').addEventListener('click', ()=>{
   if (state.adminPinEntry === DB.getAdminPin()){
     $('#adminPanel').classList.remove('hidden');
-    populateAlumnoSelect(); refreshTabla(); populatePricesUI(); populatePagosUI();
+    populateAlumnoSelect(); refreshTabla(); populatePricesUI(); populatePagosUI(); populateVoicesUI();
     state.adminPinEntry=''; updateDots('#adminPinDisplay',0);
   } else { speak('Código incorrecto'); }
 });
 
-// Tabs
+// ---------- Tabs ----------
 $$('.tabs button').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     $$('.tabs button').forEach(b=>b.classList.toggle('active', b===btn));
@@ -197,12 +242,18 @@ $$('.tabs button').forEach(btn=>{
     $('#'+btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab==='tab-listado'){ refreshTabla(); hideHistorial(); }
     if (btn.dataset.tab==='tab-agendar'){ renderCalendar(); }
-    if (btn.dataset.tab==='tab-ajustes'){ $('#ajPinAdmin').value=DB.getAdminPin(); populatePricesUI(); }
+    if (btn.dataset.tab==='tab-ajustes'){ $('#ajPinAdmin').value=DB.getAdminPin(); populatePricesUI(); populateVoicesUI(); }
     if (btn.dataset.tab==='tab-pagos'){ populatePagosUI(); }
   });
 });
 
-// Registrar/Editar
+// ---------- Registrar/Editar ----------
+function resetAlumnoForm(){
+  $('#alNombre').value=''; $('#alPin').value=''; $('#alTelefono').value=''; $('#alNacimiento').value=''; $('#alFoto').value='';
+  $('#alNombre').dataset.editing=''; // modo NUEVO
+}
+$('#btnNuevoAlumno').addEventListener('click', resetAlumnoForm);
+
 $('#formAlumno').addEventListener('submit', async (ev)=>{
   ev.preventDefault();
   const name=$('#alNombre').value.trim();
@@ -210,20 +261,24 @@ $('#formAlumno').addEventListener('submit', async (ev)=>{
   const tel=$('#alTelefono').value.trim();
   const nac=$('#alNacimiento').value||'';
   if (!/^\d{4}$/.test(pin)){ alert('El PIN debe tener 4 dígitos.'); return; }
-  const students=DB.getStudents(); const editing=$('#alNombre').dataset.editing;
-  if ((!editing || editing!==pin) && students[pin]){ alert('Ese PIN ya está en uso.'); return; }
+  const students=DB.getStudents(); const editing=$('#alNombre').dataset.editing || '';
+  // Reglas de unicidad fuertes: si el PIN existe y NO es el mismo alumno en edición -> no permitir
+  if (students[pin] && editing !== pin){ alert('Ese PIN ya está en uso. Usa otro.'); return; }
   const stu=students[editing||pin] || {schedules:{}, history:[], payments:{}};
+  // Si se trata de "Nuevo", editing=='' y students[pin] no existe (ya validado)
   stu.name=name; stu.pin=pin; stu.phone=tel; stu.birth=nac;
   const file=$('#alFoto').files[0];
   if (file){
     const dataUrl=await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); });
     stu.photoDataUrl=dataUrl;
   }
+  // Si estamos cambiando el PIN en modo edición, borrar el viejo
   if (editing && editing!==pin) delete students[editing];
   students[pin]=stu; DB.setStudents(students);
-  $('#alNombre').dataset.editing=pin;
   alert('Alumno guardado.');
-  populateAlumnoSelect(); refreshTabla(); populatePagosUI(); // se actualizan tabla y quick list inmediatamente
+  // Flujo NUEVO: limpiar para evitar reemplazar por accidente
+  resetAlumnoForm();
+  populateAlumnoSelect(); refreshTabla(); populatePagosUI();
 });
 
 $('#btnEditarAlumno').addEventListener('click', ()=>{
@@ -246,14 +301,13 @@ $('#btnEliminarAlumno').addEventListener('click', ()=>{
   if (!students[key]){ alert('No encontrado'); return; }
   if (confirm('¿Eliminar este alumno y todo su historial/pagos/agendas?')){
     DB.deleteStudent(key);
-    $('#alNombre').value=''; $('#alPin').value=''; $('#alTelefono').value=''; $('#alNacimiento').value=''; $('#alFoto').value='';
-    $('#alNombre').dataset.editing='';
+    resetAlumnoForm();
     hideHistorial();
     populateAlumnoSelect(); refreshTabla(); populatePagosUI();
   }
 });
 
-// Agendar
+// ---------- Agendar ----------
 function populateAlumnoSelect(){
   const sel=$('#agAlumno'); const selPg=$('#pgAlumno'); sel.innerHTML=''; selPg.innerHTML='';
   const students=DB.getStudents();
@@ -276,7 +330,7 @@ function renderCalendar(){
   for (const d of dows){ const c=document.createElement('div'); c.className='dow'; c.textContent=d; calendar.appendChild(c); }
   const firstDow=(start.getDay()+6)%7; for(let i=0;i<firstDow;i++){ const b=document.createElement('div'); b.className='day'; calendar.appendChild(b); }
   const pin=$('#agAlumno').value; const students=DB.getStudents(); const stu=students[pin];
-  const qtyMax=clamp(parseInt($('#agCantidad').value,10)||12,1,12);
+  const qtyMax=Math.max(1, Math.min(12, parseInt($('#agCantidad').value,10)||12));
   state.selectedDays=new Set(); if (stu && stu.schedules && stu.schedules[ym]) (stu.schedules[ym].dates||[]).forEach(it=>state.selectedDays.add(it.date));
   const today=todayISO(); const loop=new Date(start);
   while(loop<=end){
@@ -302,7 +356,7 @@ $('#btnGuardarCalendario').addEventListener('click', ()=>{
   alert('Calendario guardado.'); refreshTabla(); populatePagosUI();
 });
 
-// Quick List (A–Z) + Tabla + Perfil toggle
+// ---------- Quick List + Tabla + Perfil ----------
 function refreshTabla(){
   sweepExpired();
   renderQuickList();
@@ -322,13 +376,8 @@ function renderQuickList(){
   const container = $('#quickList'); container.innerHTML='';
   const students = DB.getStudents();
   const arr = Object.values(students).sort((a,b)=> (a.name||'').localeCompare(b.name||''));
-  // Agrupar por inicial
   const groups = {};
-  arr.forEach(stu=>{
-    const letter = (stu.name||'#').trim().charAt(0).toUpperCase() || '#';
-    groups[letter] = groups[letter] || [];
-    groups[letter].push(stu);
-  });
+  arr.forEach(stu=>{ const letter=(stu.name||'#').trim().charAt(0).toUpperCase()||'#'; (groups[letter]||(groups[letter]=[])).push(stu); });
   Object.keys(groups).sort().forEach(letter=>{
     const box=document.createElement('div'); box.className='qgroup';
     box.innerHTML=`<h5>${letter}</h5>`;
@@ -349,13 +398,11 @@ function togglePerfil(pin){
   state.currentProfilePin=pin; state.historyVisible=true; showPerfil(pin);
 }
 function prefillReagendar(pin){
-  // Ir a pestaña Agendar con alumno seleccionado y el **mes siguiente**
   $$('.tabs button').forEach(b=>b.classList.remove('active')); $('[data-tab="tab-agendar"]').classList.add('active');
   $$('.tab').forEach(t=>t.classList.remove('active')); $('#tab-agendar').classList.add('active');
   $('#agAlumno').value = pin;
-  const ymNext = nextMonthYM();
+  const ymNext = (function(){ const d=new Date(); return ymISO(new Date(d.getFullYear(), d.getMonth()+1, 1)); })();
   $('#agMes').value = ymNext;
-  // Copiar qty/precio del último mes si existe
   const st = DB.getStudents(); const su = st[pin]; const months = su && su.schedules ? Object.keys(su.schedules).sort() : [];
   if (months.length){
     const last = su.schedules[months[months.length-1]];
@@ -368,28 +415,18 @@ function showPerfil(pin){
   const container=$('#historial'); container.classList.remove('hidden'); container.innerHTML='';
   const students=DB.getStudents(); const stu=students[pin]; if (!stu){ container.textContent='Alumno no encontrado'; return; }
   const rem=remainingClasses(stu); const venc=monthEndForStudent(stu)||'—';
-  const hdr=document.createElement('div');
   const actions = rem===1 ? `<div class="actions"><button id="btnReagendarNow">Re‑agendar mes siguiente</button></div>` : '';
-  hdr.innerHTML=`<h4>${stu.name} — ${pin}</h4>
-    <p>Tel: ${stu.phone||'—'} • Nac: ${stu.birth||'—'}</p>
-    <p>Clases restantes: ${rem} • Vence: ${venc}</p>${actions}`;
+  const hdr=document.createElement('div');
+  hdr.innerHTML=`<h4>${stu.name} — ${pin}</h4><p>Tel: ${stu.phone||'—'} • Nac: ${stu.birth||'—'}</p><p>Clases restantes: ${rem} • Vence: ${venc}</p>${actions}`;
   container.appendChild(hdr);
-  if (rem===1){
-    $('#btnReagendarNow').addEventListener('click', ()=> prefillReagendar(pin));
-  }
-
+  if (rem===1){ $('#btnReagendarNow').addEventListener('click', ()=> prefillReagendar(pin)); }
   const hist=document.createElement('div'); hist.innerHTML='<h4>Historial</h4>';
   const list=document.createElement('div'); list.id='histList';
-  (stu.history||[]).forEach(h=>{
-    const row=document.createElement('div'); row.className='hist-item'; row.dataset.id=h.id||'';
-    const when=new Date(h.ts||Date.now()).toLocaleString('es-MX');
-    row.innerHTML=`<span class="tag">${h.type}</span><span>${when}</span><span>${h.date||''}</span><span>${h.note||''}</span>`;
-    list.appendChild(row);
-  });
+  (stu.history||[]).forEach(h=>{ const row=document.createElement('div'); row.className='hist-item'; row.dataset.id=h.id||''; const when=new Date(h.ts||Date.now()).toLocaleString('es-MX'); row.innerHTML=`<span class="tag">${h.type}</span><span>${when}</span><span>${h.date||''}</span><span>${h.note||''}</span>`; list.appendChild(row); });
   hist.appendChild(list); container.appendChild(hist);
 }
 
-// Export mensual (igual)
+// ---------- Export mensual ----------
 $('#btnExportarMes').addEventListener('click', ()=>{
   const ym=$('#expMes').value || ymISO(new Date());
   const students=DB.getStudents();
@@ -415,7 +452,7 @@ $('#btnExportarMes').addEventListener('click', ()=>{
   const w=window.open('', '_blank'); w.document.write(html); w.document.close(); setTimeout(()=> w.print(), 300);
 });
 
-// Pagos (igual)
+// ---------- Pagos ----------
 function populatePagosUI(){
   const students=DB.getStudents(); const sel=$('#pgAlumno'); sel.innerHTML='';
   const pins=Object.keys(students).sort((a,b)=> (students[a].name||'').localeCompare(students[b].name||''));
@@ -437,20 +474,29 @@ function renderPagos(pin, ym){
   $('#pgEliminarMes').onclick=()=>{ if (confirm('¿Eliminar TODOS los pagos de este mes?')){ const st=DB.getStudents(); const su=st[pin]; if (su.payments && su.payments[ym]) delete su.payments[ym]; st[pin]=su; DB.setStudents(st); renderPagos(pin,ym); } };
 }
 
-// Ajustes (PIN y precios)
+// ---------- Ajustes ----------
 $('#ajPinAdmin').addEventListener('change', (e)=>{ const v=e.target.value.trim(); if (/^\d{4}$/.test(v)){ DB.setAdminPin(v); speak('PIN actualizado'); } else alert('PIN inválido'); });
 function populatePricesUI(){ const grid=$('#ajPrecios'); const s=DB.getSettings(); grid.innerHTML=''; for(let i=1;i<=12;i++){ const w=document.createElement('div'); w.innerHTML=`<label>${i===1?'Clase suelta (1)':i+' clases'}<input type="number" step="1" min="0" data-qty="${i}" value="${s.prices?.[i]??0}"></label>`; grid.appendChild(w); } }
 $('#btnGuardarPrecios').addEventListener('click', ()=>{ const s=DB.getSettings(); s.prices=s.prices||{}; $$('#ajPrecios input[type="number"]').forEach(inp=>{ const q=parseInt(inp.dataset.qty,10); s.prices[q]=parseFloat(inp.value||'0'); }); DB.setSettings(s); alert('Precios guardados.'); });
 
-// Init
+$('#ajVoz').addEventListener('change', (e)=>{
+  const name = e.target.value || '';
+  localStorage.setItem(VOICE_PREF_KEY, name);
+  const s=DB.getSettings(); s.voiceName=name; DB.setSettings(s);
+  speak('Voz guardada');
+});
+$('#btnProbarVoz').addEventListener('click', ()=> speak('Esta es una prueba de voz en español.'));
+
+// ---------- Init ----------
 function init(){
   ensureDefaults(); sweepExpired(); setMode('alumno');
   if ('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js'); }
   $('#expMes').value = ymISO(new Date());
-  // voces
   if ('speechSynthesis' in window){
-    if (!speechSynthesis.getVoices().length){
-      window.speechSynthesis.onvoiceschanged = ()=>{};
+    loadVoices();
+    if (!state.voicesReady){
+      // Forzar un intento después de un pequeño tiempo (algunos navegadores tardan)
+      setTimeout(loadVoices, 400);
     }
   }
 }

@@ -1,5 +1,5 @@
 
-const CACHE = 'academia-nh-v6';
+const CACHE = 'academia-nh-v7';
 const ASSETS = [
   './',
   './index.html',

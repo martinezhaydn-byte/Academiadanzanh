@@ -97,10 +97,12 @@
             </label>
             <div class="actions">
               <button class="primary" type="submit">Guardar</button>
+              <button type="button" id="btnNuevoAlumno">Nuevo</button>
               <button type="button" id="btnEditarAlumno">Editar…</button>
               <button class="danger" type="button" id="btnEliminarAlumno">Eliminar</button>
             </div>
           </form>
+          <p class="helper">Sugerencia: después de **Guardar**, el formulario se limpia automáticamente para añadir otro alumno sin reemplazar a los existentes.</p>
         </section>
 
         <section id="tab-agendar" class="tab">
@@ -185,7 +187,7 @@
             <input type="text" id="ajPinAdmin" pattern="\d{4}" maxlength="4" inputmode="numeric" autocomplete="off">
           </label>
           <div class="row">
-            <label>Voz (Español, “Mónica” preferida)
+            <label>Voz preferida (ES)
               <select id="ajVoz"></select>
             </label>
             <button id="btnProbarVoz">Probar voz</button>
@@ -205,7 +207,7 @@
     </section>
   </main>
 
-  <footer class="foot"><small>v6.0 — PWA offline • © Academia de Danza NH</small></footer>
+  <footer class="foot"><small>v7.0 — PWA offline • © Academia de Danza NH</small></footer>
   <audio id="beep" src="assets/beep.wav" preload="auto"></audio>
   <script src="app.js"></script>
 </body>
