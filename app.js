@@ -19,6 +19,7 @@ function loadConfig(){
 function saveConfig(c){ localStorage.setItem(CFG_KEY, JSON.stringify(c)); }
 let config = loadConfig();
 let currentMode = 'alumno';
+let kioskClearTimer = null;
 
 function applyBrand(){
   document.documentElement.style.setProperty('--primary', config.primary);
@@ -35,12 +36,9 @@ function applyModeToUI(){
     $$('.tab').forEach(s=>s.classList.remove('active'));
     $('#attendance').classList.add('active');
   }
-  // Asistencias: en alumno, ocultar formulario admin y el campo de clase en PIN
   $('#form-attendance').style.display = (currentMode==='admin') ? '' : 'none';
   $('#pin-class').style.display = (currentMode==='admin') ? '' : 'none';
-  // Columna PIN en Alumnos
   $$('.pin-cell, .only-admin').forEach(td=>{ td.style.display = (currentMode==='admin') ? '' : 'none'; });
-  // Cabecera asistencias según modo
   renderAttendanceHead();
 }
 
@@ -76,14 +74,12 @@ function load(){const db={};for(const k of DB){const raw=localStorage.getItem(k)
 function save(db){for(const k of DB){localStorage.setItem(k,JSON.stringify(db[k]||[]))}}
 const db=load();
 
-// PIN helpers
 function getPinByStudentId(sid){ return db.pins.find(p=>p.student_id===sid) || null; }
 function setPinForStudent(sid, pin){ const ex=getPinByStudentId(sid); if(ex) ex.pin=pin; else db.pins.push({student_id:sid,pin}); save(db); }
 function isPinInUse(pin){ return !!db.pins.find(p=>p.pin===pin); }
 function generateUniquePin(){ let p; do{ p=Math.floor(Math.random()*10000).toString().padStart(4,'0'); }while(isPinInUse(p)); return p; }
 function copyToClipboard(text){ try{ navigator.clipboard.writeText(text); alert('PIN copiado'); }catch(e){ prompt('Copia el PIN:', text); } }
 
-// Tabs
 $$('#tabs button[data-tab]').forEach(b=>b.addEventListener('click',()=>{
   $$('#tabs button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');
@@ -103,7 +99,6 @@ $('#mode-switch').addEventListener('change', ()=>{
   applyModeToUI();
 });
 
-// Export / Import
 $('#btn-export')?.addEventListener('click',()=>{
   const data={}; for(const k of DB){ data[k]=db[k]; }
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -117,7 +112,6 @@ $('#file-import')?.addEventListener('change',async e=>{
   finally{ e.target.value='' }
 });
 
-// Config UI
 $('#cfg-brand-name').value = config.brand_name;
 $('#cfg-primary').value = config.primary;
 $('#cfg-accent').value = config.accent;
@@ -142,12 +136,19 @@ $('#cfg-save').addEventListener('click',()=>{
   alert('Configuración guardada');
 });
 
-// Students
+let pendingPhotoData = '';
+$('#student-photo')?.addEventListener('change', async (e)=>{
+  const f=e.target.files[0]; if(!f) return;
+  const data = await f.arrayBuffer();
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(data)));
+  pendingPhotoData = 'data:'+ (f.type||'image/png') +';base64,'+ base64;
+});
 $('#form-student').addEventListener('submit',e=>{
   e.preventDefault();
   const fd=new FormData(e.target);
   const s=Object.fromEntries(fd.entries());
   s.student_id=uid('stu');
+  if(pendingPhotoData){ s.photo_data = pendingPhotoData; pendingPhotoData=''; $('#student-photo').value=''; }
   db.students.push(s); save(db); e.target.reset(); renderAll();
 });
 function renderStudents(){
@@ -155,7 +156,9 @@ function renderStudents(){
   for(const s of db.students){
     const rec=getPinByStudentId(s.student_id); const pin=rec?rec.pin:'—';
     const tr=document.createElement('tr');
+    const img = s.photo_data ? `<img src="${s.photo_data}" alt="foto" style="width:42px;height:42px;object-fit:cover;border-radius:8px;border:1px solid #e5e7eb" />` : '—';
     tr.innerHTML=`
+      <td>${img}</td>
       <td>${s.full_name||''}</td>
       <td>${s.age||''}</td>
       <td>${s.phone||''}</td>
@@ -194,7 +197,6 @@ function renderStudents(){
   },{once:true});
 }
 
-// Enrollments
 function renderEnrollmentSelectors(){
   const selS=$('#form-enrollment select[name="student_id"]');
   const selP=$('#form-enrollment select[name="package_id"]');
@@ -260,7 +262,6 @@ $('#form-enrollment').addEventListener('submit',e=>{
   save(db); e.target.reset(); renderAll();
 });
 
-// Status helpers
 function refreshStatuses(){
   const t=todayISO();
   for(const en of db.enrollments){ if(en.status==='activo' && en.end_date && en.end_date<t){ en.status='vencido'; } }
@@ -285,7 +286,6 @@ function hasPaidForEnrollment(en){
   return list.length>0;
 }
 
-// Attendance
 function renderAttendanceHead(){
   const head=$('#attendance-head');
   if(currentMode==='admin'){
@@ -303,7 +303,7 @@ function renderAttendance(){
   let rows=db.attendance.slice();
   if(currentMode!=='admin'){
     const t=todayISO();
-    rows=rows.filter(a=>a.date===t); // solo hoy
+    rows=rows.filter(a=>a.date===t);
   }
   rows.sort((a,b)=>b.date.localeCompare(a.date));
   for(const at of rows){
@@ -318,6 +318,21 @@ function renderAttendance(){
     tb.appendChild(tr);
   }
 }
+function showKioskProfile(sid){
+  const box = $('#kiosk-profile');
+  const s = db.students.find(x=>x.student_id===sid);
+  let en = getActiveEnrollment(sid); if(!en) en=getLatestEnrollment(sid);
+  const rest = en ? (en.remaining_classes ?? 0) : 0;
+  const img = s?.photo_data ? `<img src="${s.photo_data}" alt="foto alumno">` : `<img src="icons/icon-192.png" alt="sin foto">`;
+  box.innerHTML = `${img}<div class="info"><div class="name">${s? s.full_name : ''}</div><div class="meta">Restantes: ${rest}</div><div class="meta">Hoy: ${todayISO()}</div></div>`;
+  box.style.display = 'flex';
+  if(kioskClearTimer) clearTimeout(kioskClearTimer);
+  kioskClearTimer = setTimeout(clearKioskProfile, 12000);
+}
+function clearKioskProfile(){
+  const box = $('#kiosk-profile');
+  box.innerHTML=''; box.style.display='none';
+}
 function markAttendanceFor(sid, cls, by='admin'){
   const s=db.students.find(x=>x.student_id===sid); if(!s){ alert('Alumno no encontrado'); speak(config.voice_deny); return; }
   let en=getActiveEnrollment(sid); if(!en) en=getLatestEnrollment(sid);
@@ -331,6 +346,7 @@ function markAttendanceFor(sid, cls, by='admin'){
     if(en.remaining_classes===1){ alert(`Aviso: a ${s.full_name} le queda 1 clase.`); }
   }
   save(db); renderAll(); speak(config.voice_ok);
+  if(currentMode==='alumno'){ showKioskProfile(sid); }
 }
 $('#form-attendance').addEventListener('submit',e=>{
   e.preventDefault(); const fd=new FormData(e.target);
@@ -343,8 +359,8 @@ $('#form-pin').addEventListener('submit',e=>{
   const cls = (currentMode==='admin') ? (fd.get('class_name_or_group')||'') : (config.default_class || '');
   markAttendanceFor(rec.student_id, cls, 'pin'); e.target.reset();
 });
+$('#form-pin input[name="pin"]').addEventListener('input', ()=>{ clearKioskProfile(); });
 
-// Payments
 function renderPayments(){
   const tb=$('#table-payments tbody'); tb.innerHTML='';
   const rows=db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date));
@@ -356,7 +372,6 @@ function renderPayments(){
   }
 }
 
-// Events / Reports / Dashboard
 $('#form-event').addEventListener('submit',e=>{
   e.preventDefault(); const fd=new FormData(e.target);
   const ev=Object.fromEntries(fd.entries()); ev.event_id=uid('evt'); db.events.push(ev); save(db); e.target.reset(); renderAll();
@@ -403,7 +418,6 @@ function renderDashboard(){
   $('#upcoming-events').textContent=up;
 }
 
-// Panel Alumno
 $('#form-panel-login').addEventListener('submit',e=>{
   e.preventDefault();
   const pin=(new FormData(e.target).get('pin')||'').trim();
@@ -426,7 +440,6 @@ $('#form-panel-login').addEventListener('submit',e=>{
 });
 $('#pv-logout').addEventListener('click',()=>{ $('#panel-login').style.display='block'; $('#panel-view').style.display='none'; });
 
-// Initial render
 function renderAll(){
   refreshStatuses();
   try{ renderStudents(); }catch(e){}

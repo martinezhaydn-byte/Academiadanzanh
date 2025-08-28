@@ -28,5 +28,11 @@ table { width:100%; border-collapse: collapse; }
 th, td { padding:10px; border-bottom:1px solid #f1f1f1; text-align:left; }
 .flex { display:flex; gap: var(--gap); align-items: flex-start; flex-wrap: wrap; }
 .pin-box { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:12px; }
+.kiosk-profile { margin-top:10px; display:none; align-items:center; gap:12px; border:2px dashed var(--primary); border-radius:14px; padding:12px; background:#fff; }
+.kiosk-profile img { width:84px; height:84px; object-fit:cover; border-radius:12px; border:2px solid var(--primary); }
+.kiosk-profile .info { display:flex; flex-direction:column; }
+.kiosk-profile .name { font-weight:700; color:var(--accent); }
+.kiosk-profile .meta { color:#444; font-size:0.95rem; }
+.file-uploader { display:flex; align-items:center; gap:8px; }
 .muted { color:#6b7280; }
 .only-admin { }

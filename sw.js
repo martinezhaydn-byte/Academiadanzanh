@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'academia-nh-cache-v2';
+const CACHE_NAME = 'academia-nh-cache-v4';
 const ASSETS = [
   './','./index.html','./styles.css','./app.js','./manifest.json',
   './icons/icon-192.png','./icons/icon-512.png'
