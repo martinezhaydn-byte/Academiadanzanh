@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
-  <title>Academia de Danza NH — Accesos</title>
+  <title>ADNH • Accesos</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="styles.css">
   <meta name="theme-color" content="#111111">
@@ -11,39 +11,41 @@
 <body>
   <header>
     <h1>Academia de Danza NH</h1>
-    <p class="subtitle">Control de accesos • ciclo 2025–2026</p>
+    <p class="subtitle">App limpia • iPad & Android</p>
   </header>
 
-  <main id="view-home" class="view active">
+  <main id="view-home" class="view active" role="main">
     <div class="mode-picker">
-      <button id="btn-alumno" class="primary">Alumno</button>
-      <button id="btn-admin" class="secondary">Administrador</button>
+      <button id="go-alumno" class="primary">Alumno</button>
+      <button id="go-admin" class="secondary">Administrador</button>
     </div>
-    <p class="note">Funciona sin internet. Puedes instalarla en tu iPad: Compartir → “Añadir a la pantalla de inicio”.</p>
+    <p class="note">Instalable y sin internet. iPad y tablet Android.</p>
   </main>
 
-  <main id="view-alumno" class="view">
-    <button class="back" data-back>← Regresar</button>
+  <!-- Alumno -->
+  <main id="view-alumno" class="view" aria-live="polite">
+    <button class="back" data-back>← Inicio</button>
     <h2>Acceso de Alumno</h2>
-    <div class="pin-box">
-      <input id="pin-1" inputmode="numeric" maxlength="1" pattern="[0-9]*">
+    <div class="pin-box" aria-label="PIN 4 dígitos">
+      <input id="pin-1" inputmode="numeric" maxlength="1" pattern="[0-9]*" autocomplete="one-time-code">
       <input id="pin-2" inputmode="numeric" maxlength="1" pattern="[0-9]*">
       <input id="pin-3" inputmode="numeric" maxlength="1" pattern="[0-9]*">
       <input id="pin-4" inputmode="numeric" maxlength="1" pattern="[0-9]*">
     </div>
-    <div class="keypad" aria-label="Teclado numérico">
+    <div class="keypad">
       <button data-key="1">1</button><button data-key="2">2</button><button data-key="3">3</button>
       <button data-key="4">4</button><button data-key="5">5</button><button data-key="6">6</button>
       <button data-key="7">7</button><button data-key="8">8</button><button data-key="9">9</button>
       <button data-key="del">⌫</button><button data-key="0">0</button><button data-key="ok">OK</button>
     </div>
-    <div id="alumno-msg" class="msg"></div>
+    <div id="alumno-msg" class="msg" aria-live="assertive"></div>
   </main>
 
+  <!-- Admin PIN -->
   <main id="view-admin-pin" class="view">
-    <button class="back" data-back>← Regresar</button>
+    <button class="back" data-back>← Inicio</button>
     <h2>Administrador</h2>
-    <p>Ingresa PIN de administrador.</p>
+    <p>Ingresa PIN</p>
     <div class="pin-box">
       <input id="apin-1" inputmode="numeric" maxlength="1" pattern="[0-9]*">
       <input id="apin-2" inputmode="numeric" maxlength="1" pattern="[0-9]*">
@@ -59,31 +61,34 @@
     <div id="admin-pin-msg" class="msg"></div>
   </main>
 
+  <!-- Admin -->
   <main id="view-admin" class="view">
-    <button class="back" data-back>← Regresar</button>
+    <button class="back" data-back>← Inicio</button>
     <h2>Panel</h2>
-    <section id="admin-alerts" class="alerts"></section>
+
+    <section id="admin-alerts" class="alerts" aria-live="polite"></section>
 
     <section class="toolbar">
-      <button id="btn-add-student" class="primary">Añadir alumno</button>
-      <button id="btn-export">Exportar respaldo</button>
-      <label class="import-label">Importar <input type="file" id="file-import" accept="application/json"></label>
-      <button id="btn-reset" class="danger">Reiniciar todo</button>
+      <button id="btn-add" class="primary">Añadir alumno</button>
+      <button id="btn-export">Exportar</button>
+      <label class="import-label">Importar <input id="file-import" type="file" accept="application/json"></label>
+      <button id="btn-reset" class="danger">Reiniciar</button>
     </section>
 
     <section class="admin-settings">
       <details>
         <summary>Ajustes</summary>
-        <label>Voz (accesos/avisos)
-          <span class="row">
-            <input id="voice-enabled" type="checkbox"> Activar voz
-            <button id="btn-test-voice" type="button">Probar voz</button>
-          </span>
-        </label>
         <label>PIN de administrador
           <input id="admin-pin-input" type="password" inputmode="numeric" maxlength="4" placeholder="0000">
         </label>
         <button id="btn-save-admin-pin">Guardar PIN</button>
+
+        <label>Voz (español México)
+          <span class="row">
+            <input id="voice-enabled" type="checkbox" checked> Activar voz
+            <button id="btn-test-voice" type="button">Probar voz</button>
+          </span>
+        </label>
       </details>
     </section>
 
@@ -93,19 +98,18 @@
     </section>
   </main>
 
+  <!-- Dialog Alumno/Profile -->
   <dialog id="dlg-student">
     <form method="dialog" id="form-student">
       <h3 id="dlg-title">Alumno</h3>
       <label>Nombre completo<input name="name" required></label>
-      <label>Código de acceso (4 dígitos)<input name="pin" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required></label>
+      <label>PIN (4 dígitos)<input name="pin" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required></label>
       <label>Teléfono<input name="phone"></label>
-      <label>Teléfono de emergencia<input name="emergency"></label>
-      <label>Fecha de nacimiento<input name="birthdate" type="date"></label>
+      <label>Emergencia<input name="emergency"></label>
+      <label>Nacimiento<input name="birthdate" type="date"></label>
       <label>Dirección<textarea name="address" rows="2"></textarea></label>
       <label>Forma de pago<select name="payment">
-        <option value="">—</option>
-        <option>Efectivo</option>
-        <option>Transferencia</option>
+        <option value="">—</option><option>Efectivo</option><option>Transferencia</option>
       </select></label>
 
       <fieldset>
@@ -128,9 +132,9 @@
       </fieldset>
 
       <div class="photo-row">
-        <img id="student-photo-preview" alt="Foto" />
-        <input id="student-photo-input" type="file" accept="image/*" capture="environment">
-        <button id="btn-take-photo" type="button">Tomar/Actualizar foto</button>
+        <img id="photo-preview" alt="Foto" />
+        <input id="photo-input" type="file" accept="image/*" capture="environment">
+        <button id="btn-photo" type="button">Tomar/Actualizar foto</button>
       </div>
 
       <menu>
@@ -140,6 +144,7 @@
     </form>
   </dialog>
 
+  <!-- Dialog Reagendar -->
   <dialog id="dlg-resched">
     <form method="dialog" id="form-resched">
       <h3>Reagendar paquete</h3>
@@ -165,10 +170,7 @@
     </form>
   </dialog>
 
-  <footer>
-    <small>Hecho para Academia de Danza NH • Local y sin internet • v1.0</small>
-  </footer>
-
+  <footer><small>ADNH • App limpia • v1.0</small></footer>
   <script src="app.js"></script>
 </body>
 </html>

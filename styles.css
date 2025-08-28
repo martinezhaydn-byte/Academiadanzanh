@@ -1,9 +1,9 @@
 *{box-sizing:border-box}html,body{margin:0;padding:0;height:100%;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}body{background:#0e0e0e;color:#f5f5f5}
 header{padding:16px 20px;background:#111;border-bottom:1px solid #222}
-h1{margin:0;font-size:1.25rem} .subtitle{opacity:.7;margin:.25rem 0 0}
-.view{display:none;max-width:900px;margin:0 auto;padding:24px} .view.active{display:block}
+h1{margin:0;font-size:1.25rem}.subtitle{opacity:.7;margin:.25rem 0 0}
+.view{display:none;max-width:900px;margin:0 auto;padding:24px}.view.active{display:block}
 .mode-picker{display:flex;gap:12px;justify-content:center;margin-top:12vh}
-button{border:1px solid #333;background:#1a1a1a;color:#fff;padding:12px 16px;border-radius:10px;cursor:pointer;font-size:1rem}button:hover{background:#222}
+button{border:1px solid #333;background:#1a1a1a;color:#fff;padding:12px 16px;border-radius:10px;cursor:pointer;font-size:16px}button:hover{background:#222}
 button.primary{background:#2563eb;border-color:#1d4ed8}button.primary:hover{background:#1d4ed8}
 button.secondary{background:#374151}
 button.danger{background:#7f1d1d}
@@ -14,9 +14,7 @@ button.danger{background:#7f1d1d}
 .msg{min-height:24px;text-align:center;margin-top:8px}
 .note{opacity:.75;text-align:center}
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 16px}
-#import-file{display:none}
 .import-label{display:inline-flex;gap:8px;align-items:center}
-#students-list h3{margin-top:24px}
 #students{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
 .card{border:1px solid #2a2a2a;background:#131313;border-radius:12px;padding:12px}
 .card h4{margin:.2rem 0 .4rem}
@@ -29,7 +27,7 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 dialog form{padding:16px}
 dialog h3{margin:0 0 12px}
 label{display:flex;flex-direction:column;gap:6px;margin:8px 0}
-input,select,textarea{border:1px solid #333;border-radius:10px;background:#0f0f0f;color:#fff;padding:10px}
+input,select,textarea{border:1px solid #333;border-radius:10px;background:#0f0f0f;color:#fff;padding:10px;font-size:16px}
 fieldset{border:1px solid #333;border-radius:12px;padding:10px;margin-top:8px}
 legend{padding:0 6px}
 .photo-row{display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:start;margin-top:6px}
@@ -37,14 +35,10 @@ legend{padding:0 6px}
 menu{display:flex;gap:10px;justify-content:flex-end;margin:12px 0 0;padding:0}
 footer{padding:10px 16px;border-top:1px solid #222;opacity:.8;text-align:center;margin-top:20px}
 .success{color:#22c55e}.error{color:#ef4444}.warn{color:#f59e0b}
-
+/* iOS/Android UX */
+html{-webkit-text-size-adjust:100%}
+button,input,select,textarea{touch-action:manipulation}
+.keypad button{min-height:56px}
 .alerts{border:1px solid #3a2a00;background:#1a1200;color:#fbbf24;border-radius:12px;padding:10px;margin:8px 0 16px;display:none}
 .alerts.active{display:block}
-.alerts h4{margin:.2rem 0 .2rem}
 .badge{display:inline-block;border:1px solid #665200;background:#332a00;color:#fbbf24;border-radius:999px;padding:2px 8px;font-size:.8rem;margin-left:6px}
-    
-/* iOS: evita zoom por doble toque y por inputs pequeños */
-html{-webkit-text-size-adjust:100%}
-button,input,select,textarea{font-size:16px; touch-action:manipulation}
-.keypad button{min-height:56px}
-    
