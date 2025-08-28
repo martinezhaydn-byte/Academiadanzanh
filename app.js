@@ -176,14 +176,19 @@ const views = {
   admin: document.getElementById('view-admin'),
 };
 
+
 function show(id) {
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   id.classList.add('active');
-  // Reset Admin PIN state when opening its view
+  // Reset Admin PIN state when opening its view — safe (no undeclared consts)
   if (id === views.adminPin) {
-    apInputs.forEach(i=>i.value='');
-    adminPinMsg.textContent = '';
+    const fields = document.querySelectorAll('#view-admin-pin .pin-box input');
+    fields.forEach(i=>i.value='');
+    const msg = document.getElementById('admin-pin-msg');
+    if (msg) msg.textContent = '';
   }
+}
+
 }
 
 
