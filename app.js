@@ -35,6 +35,10 @@ function switchToTab(tabId){
   $$('.tab').forEach(s=>s.classList.remove('active'));
   $('#'+tabId)?.classList.add('active');
 }
+function updateAdminButtons(){
+  $('#btn-admin-login').style.display = (currentMode==='alumno') ? '' : 'none';
+  $('#btn-admin-logout').style.display = (currentMode==='admin') ? '' : 'none';
+}
 function applyModeToUI(){
   $$('#tabs [data-admin]').forEach(el=>{ el.style.display = (currentMode==='admin') ? '' : 'none'; });
   const attendanceBtn = $('#tabs button[data-tab="attendance"]');
@@ -47,7 +51,30 @@ function applyModeToUI(){
   }
   $$('.pin-cell, .only-admin').forEach(td=>{ td.style.display = (currentMode==='admin') ? '' : 'none'; });
   renderAttendanceHead();
+  updateAdminButtons();
 }
+function askAdminPIN(){
+  const modal = $('#modal');
+  const form = $('#form-admin-pin');
+  const input = $('#form-admin-pin input[name="pin"]');
+  modal.style.display='flex';
+  input.value='';
+  input.focus();
+  const close = ()=>{ modal.style.display='none'; form.onsubmit=null; $('#modal-close').onclick=null; };
+  form.onsubmit = (e)=>{
+    e.preventDefault();
+    const val = (new FormData(form).get('pin')||'').trim();
+    if(val === config.admin_pin){
+      currentMode='admin'; applyModeToUI(); close();
+    } else {
+      alert('PIN incorrecto');
+    }
+  };
+  $('#modal-close').onclick = close;
+}
+
+$('#btn-admin-login')?.addEventListener('click', askAdminPIN);
+$('#btn-admin-logout')?.addEventListener('click', ()=>{ currentMode='alumno'; applyModeToUI(); });
 
 function speak(text){
   try{
@@ -111,16 +138,6 @@ $$('#tabs button[data-tab]').forEach(b=>b.addEventListener('click',()=>{
   $('#'+t).classList.add('active');
   renderAll();
 }));
-$('#mode-switch').value = currentMode;
-$('#mode-switch').addEventListener('change', ()=>{
-  const target = $('#mode-switch').value;
-  if(target==='admin'){
-    const pin = prompt('PIN de Admin:');
-    if(pin === config.admin_pin){ currentMode='admin'; }
-    else { alert('PIN incorrecto'); $('#mode-switch').value='alumno'; currentMode='alumno'; }
-  } else { currentMode='alumno'; }
-  applyModeToUI();
-});
 
 // Export/Import
 $('#btn-export')?.addEventListener('click',()=>{
@@ -172,7 +189,7 @@ $('#cfg-clear-cache')?.addEventListener('click', async ()=>{
       await Promise.all(regs.map(r => r.unregister()));
     }
   }catch(e){}
-  setTimeout(()=>location.replace(location.pathname + '?v=clean9btn'),300);
+  setTimeout(()=>location.replace(location.pathname + '?v=clean11btn'),300);
 });
 
 // Students
@@ -189,6 +206,10 @@ $('#form-student').addEventListener('submit',e=>{
   if(pendingPhotoData){ s.photo_data = pendingPhotoData; pendingPhotoData=''; $('#student-photo').value=''; }
   db.students.push(s); save(db); e.target.reset(); renderAll();
 });
+function getPinByStudentId(sid){ return db.pins.find(p=>p.student_id===sid) || null; }
+function setPinForStudent(sid, pin){ const ex=getPinByStudentId(sid); if(ex) ex.pin=pin; else db.pins.push({student_id:sid,pin}); save(db); }
+function isPinInUse(pin){ return !!db.pins.find(p=>p.pin===pin); }
+function generateUniquePin(){ let p; do{ p=Math.floor(Math.random()*10000).toString().padStart(4,'0'); }while(isPinInUse(p)); return p; }
 function renderStudents(){
   const tb=$('#table-students tbody'); tb.innerHTML='';
   for(const s of db.students){

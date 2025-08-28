@@ -39,3 +39,6 @@ th, td { padding:10px; border-bottom:1px solid #f1f1f1; text-align:left; }
 .muted { color:#6b7280; }
 .only-admin { }
 .tbl-photo { width:42px;height:42px;object-fit:cover;border-radius:8px;border:1px solid #e5e7eb }
+.modal { position:fixed; inset:0; background:rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; padding:16px; }
+.modal-content { background:#fff; border-radius:12px; border:1px solid #e5e7eb; padding:16px; max-width:420px; width:100%; }
+.outline { background:#fff;border:1px solid #94a3b8;color:#111827 }
