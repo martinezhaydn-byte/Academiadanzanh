@@ -4,8 +4,8 @@ const DB_KEY = "danzaDB_v3";
 
 const defaultConfig = {
   adminPin: "2580",
-  precios: { "1": 80, "2": 150, "4": 280, "6": 380, "8": 480, "mes": 600 },
-  voice: { volume: 1, rate: 1.0 }
+  precios: { "1": 80, "2": 150, "4": 280, "6": 380, "8": 480, "9": 540, "10": 600, "11": 660, "12": 720, "mes": 600 },
+  voice: { volume: 1, rate: 0.95, selectedVoiceURI: null }
 };
 
 function loadDB() {
@@ -37,34 +37,26 @@ function mxn(n) { return new Intl.NumberFormat('es-MX', { style: 'currency', cur
 let cachedVoices = [];
 function getSpanishVoice() {
   cachedVoices = window.speechSynthesis?.getVoices?.() || [];
-  const prefer = ["es-MX","es-419","es-ES","Spanish"];
-  // Buscar coincidencias claras por lang
-  for (const p of prefer) {
-    const v = cachedVoices.find(v=> (v.lang || "").toLowerCase().includes(p.toLowerCase()));
+  const db = loadDB();
+  // If user selected a specific voice, try to use it
+  if (db.config.voice.selectedVoiceURI) {
+    const sel = cachedVoices.find(v => v.voiceURI === db.config.voice.selectedVoiceURI);
+    if (sel) return sel;
+  }
+  // Prefer Spanish voices, likely female names
+  const preferLangs = ["es-MX","es-419","es-ES","es"];
+  const femaleNames = ["Mónica","Monica","Paulina","Camila","Luciana","Marisol","Elena","Sofia","Sofía","Isabela","Carla"];
+  // Filter spanish voices
+  const esVoices = cachedVoices.filter(v => (v.lang||"").toLowerCase().startsWith("es"));
+  // Try female name match first
+  for (const name of femaleNames) {
+    const v = esVoices.find(v => (v.name||"").toLowerCase().includes(name.toLowerCase()));
     if (v) return v;
   }
-  // Si no encuentra, intentar voz por nombre con pistas comunes
-  const candidates = ["Paulina", "Monica", "Mónica", "Camila", "Luciana", "Jorge", "Diego", "Marisol"];
-  for (const name of candidates) {
-    const v = cachedVoices.find(v=> (v.name||"").toLowerCase().includes(name.toLowerCase()));
-    if (v) return v;
-  }
-  return null;
-}
-function speak(text) {
-  try {
-    if (!("speechSynthesis" in window)) return;
-    const utter = new SpeechSynthesisUtterance(text);
-    const db = loadDB();
-    utter.volume = db.config.voice.volume ?? 1;
-    utter.rate = db.config.voice.rate ?? 1;
-    const voice = getSpanishVoice();
-    if (voice) utter.voice = voice;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utter);
-  } catch(e) {
-    console.warn("Voz no disponible:", e);
-  }
+  // Fallback: any spanish voice
+  if (esVoices.length) return esVoices[0];
+  // Last resort: any voice
+  return cachedVoices[0] || null;
 }
 
 // ===== Estado UI =====
@@ -164,13 +156,26 @@ function entrarConPin() {
   }
   // Mostrar perfil
   alumnoActual = alumno;
-  mostrarPerfilAlumno(alumno);
-  const ok = alumno.clasesRestantes > 0;
+  const db2 = loadDB();
+  const ref = db2.alumnos.find(a=> a.id === alumno.id);
+  const ok = (ref?.clasesRestantes||0) > 0;
   if (ok) {
-    alumnoFeedback.textContent = "Acceso autorizado";
+    // Descontar automáticamente 1 clase al acceder
+    ref.clasesRestantes = (ref.clasesRestantes||0) - 1;
+    saveDB(db2);
+    mostrarPerfilAlumno(ref);
+    alumnoFeedback.textContent = "Acceso autorizado. Se descontó 1 clase.";
     alumnoFeedback.className = "feedback ok";
     speak("Acceso autorizado");
+    // Avisar si queda 1 clase
+    if (ref.clasesRestantes === 1) {
+      setTimeout(()=>{
+        alert("Aviso: te queda 1 clase. Realiza tu pago para re-agendar.");
+        speak("Aviso: te queda una clase. Realiza tu pago para re agendar.");
+      }, 300);
+    }
   } else {
+    mostrarPerfilAlumno(ref || alumno);
     alumnoFeedback.textContent = "Acceso denegado: sin clases disponibles";
     alumnoFeedback.className = "feedback err";
     speak("Acceso denegado");
@@ -198,7 +203,7 @@ function mostrarPerfilAlumno(a) {
 }
 
 function etiquetarPaquete(p) {
-  const mapa = { "1":"Clase suelta (1)","2":"Dos clases (2)","4":"Cuatro clases (4)","6":"Seis clases (6)","8":"Ocho clases (8)","mes":"Mes completo" };
+  const mapa = { "1":"Clase suelta (1)","2":"Dos clases (2)","4":"Cuatro clases (4)","6":"Seis clases (6)","8":"Ocho clases (8)","9":"Nueve clases (9)","10":"Diez clases (10)","11":"Once clases (11)","12":"Doce clases (12)","mes":"Mes completo" };
   return mapa[p] || p;
 }
 
@@ -523,7 +528,7 @@ formAlumno.querySelector('button[value="confirm"]').addEventListener("click", (e
   const finalize = (fotoDataUrl)=>{
     baseAlumno.foto = fotoDataUrl || (editAlumnoId ? (db.alumnos.find(x=>x.id===editAlumnoId)?.foto||"") : "");
     // clacular clasesRestantes iniciales en base al paquete si no existía
-    const paqueteMap = { "1":1,"2":2,"4":4,"6":6,"8":8,"mes": 9999 }; // "mes" se maneja como grande
+    const paqueteMap = { "1":1,"2":2,"4":4,"6":6,"8":8,"9":9,"10":10,"11":11,"12":12,"mes": 9999 }; // "mes" se maneja como grande
     if (editAlumnoId) {
       const idx = db.alumnos.findIndex(x=> x.id === editAlumnoId);
       if (idx >= 0) {
@@ -573,6 +578,46 @@ const voiceVolume = document.getElementById("voiceVolume");
 const voiceRate = document.getElementById("voiceRate");
 const probarVoz = document.getElementById("probarVoz");
 
+
+const voiceSelect = document.getElementById("voiceSelect");
+
+function populateVoiceList() {
+  if (!voiceSelect) return;
+  voiceSelect.innerHTML = "";
+  cachedVoices = window.speechSynthesis?.getVoices?.() || [];
+  const esVoices = cachedVoices.filter(v => (v.lang||"").toLowerCase().startsWith("es"));
+  const db = loadDB();
+  const currentURI = db.config.voice.selectedVoiceURI;
+  esVoices.forEach(v => {
+    const opt = document.createElement("option");
+    opt.value = v.voiceURI;
+    opt.textContent = `${v.name} (${v.lang})`;
+    if (currentURI && v.voiceURI === currentURI) opt.selected = true;
+    voiceSelect.appendChild(opt);
+  });
+  // If nothing selected yet, select first spanish if available
+  if (!currentURI && esVoices[0]) {
+    voiceSelect.value = esVoices[0].voiceURI;
+    db.config.voice.selectedVoiceURI = esVoices[0].voiceURI;
+    saveDB(db);
+  }
+}
+
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = ()=>{
+    cachedVoices = window.speechSynthesis.getVoices();
+    populateVoiceList();
+  };
+  // Initial attempt
+  setTimeout(populateVoiceList, 300);
+}
+
+voiceSelect?.addEventListener("change", ()=>{
+  const db = loadDB();
+  db.config.voice.selectedVoiceURI = voiceSelect.value || null;
+  saveDB(db);
+});
+
 function cargarConfig() {
   const db = loadDB();
   cfgAdminPin.value = db.config.adminPin || "";
@@ -580,7 +625,8 @@ function cargarConfig() {
     precioInputs[k].value = db.config.precios[k] ?? 0;
   }
   voiceVolume.value = db.config.voice.volume ?? 1;
-  voiceRate.value = db.config.voice.rate ?? 1.0;
+  voiceRate.value = db.config.voice.rate ?? 0.95;
+  if (document.getElementById("voiceSelect")) { populateVoiceList(); }
 }
 formConfig.addEventListener("submit", (e)=>{
   e.preventDefault();

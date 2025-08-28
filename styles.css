@@ -106,3 +106,14 @@ dialog form { padding: 1rem; }
 @media (max-width: 900px) {
   .admin-grid { grid-template-columns: 1fr; }
 }
+
+
+/* Evitar zoom en iOS al enfocar inputs: usar fuentes >= 16px */
+input, select, button { font-size: 18px; }
+input[type="password"], input[inputmode="numeric"], input[type="search"], input[type="date"], input[type="datetime-local"], input[type="number"] {
+  font-size: 18px;
+}
+html { -webkit-text-size-adjust: 100%; }
+body { touch-action: manipulation; }
+.pin-display { font-size: 2.4rem; }
+.key { font-size: 1.3rem; padding: 1.1rem; }
