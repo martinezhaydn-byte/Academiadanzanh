@@ -1,6 +1,36 @@
 
-const CACHE = 'academia-nh-v9.1';
-const ASSETS = ['./','./index.html','./styles.css','./app.js','./manifest.json','./assets/icon-192.png','./assets/icon-512.png','./assets/beep.wav'];
-self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)))});
-self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim())});
-self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(n=>{if(e.request.method==='GET'&&n&&n.status===200){caches.open(CACHE).then(c=>c.put(e.request,n.clone()))} return n}).catch(()=>caches.match('./index.html'))))});
+const CACHE_NAME = 'academia-cache-v1';
+const ASSETS = [
+  './',
+  './index.html',
+  './styles.css',
+  './app.js',
+  './manifest.json',
+  './assets/logo.png'
+];
+
+self.addEventListener('install', (e) => {
+  e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)));
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys().then(keys => Promise.all(keys.map(k => k !== CACHE_NAME && caches.delete(k))))
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', (e) => {
+  e.respondWith(
+    caches.match(e.request).then(res => res || fetch(e.request))
+  );
+});
+
+// Receive messages to show notifications (no scheduled triggers for wide support)
+self.addEventListener('message', (event) => {
+  const { type, title, options } = event.data || {};
+  if (type === 'notify') {
+    self.registration.showNotification(title, options);
+  }
+});
