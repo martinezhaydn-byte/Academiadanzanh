@@ -1,4 +1,4 @@
-// sw.js - Service Worker para PWA Academia NH
+// sw.js - Service Worker para PWA Academia NH (v5)
 const CACHE_NAME = "academia-nh-cache-v1";
 const ASSETS = [
   "./",
@@ -26,7 +26,6 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const req = e.request;
-  // Cache-first for same-origin GET
   if (req.method === "GET" && new URL(req.url).origin === location.origin) {
     e.respondWith(
       caches.match(req).then(cached => cached || fetch(req).then(res => {

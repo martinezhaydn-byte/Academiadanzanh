@@ -1,7 +1,8 @@
-/* App Academia NH v3 (PWA)
-  - Mantiene correcciones de v2
-  - Registro de Service Worker + botón "Instalar app"
-  - Notificaciones vía Service Worker cuando sea posible
+/* App Academia NH v5 (PWA) — mejoras:
+  - Mes "en cola" (nuevo mes pagado): si el alumno paga/reagenda mientras queda 1 clase del mes actual,
+    se muestra un recuadro del próximo mes. Cuando se usa la última clase del mes actual, el sistema
+    promueve automáticamente el "próximo mes" a activo y elimina el mes anterior.
+  - Mantiene: limpieza a los 8s en acceso denegado, prueba/selección de voces, etc.
 */
 const $ = (q,ctx=document)=>ctx.querySelector(q);
 const $$ = (q,ctx=document)=>Array.from(ctx.querySelectorAll(q));
@@ -30,16 +31,56 @@ function fmtDate(d){ return d.toISOString().slice(0,10); }
 function monthKeyFromInput(v){ return v || new Date().toISOString().slice(0,7); }
 function today(){ const d=new Date(); d.setHours(0,0,0,0); return d; }
 
-// ---- Notificaciones y voz ----
-function speak(text){
+// ---- Gestión de meses (activo y en cola) ----
+function sortKeysAsc(keys){ return keys.sort(); }
+function getActiveAndNextMonth(alumno){
+  const keys = Object.keys(alumno.calendario||{});
+  if (!keys.length) return {activeKey:null,nextKey:null};
+  const sorted = sortKeysAsc(keys.slice());
+  // Activo: el más antiguo que aún tenga clases (días - usados > 0)
+  let activeKey = null;
+  for (const k of sorted){
+    const cal = alumno.calendario[k];
+    const restantes = (cal?.dias||[]).filter(d=> !(cal.usados||[]).includes(d)).length;
+    if (restantes>0) { activeKey = k; break; }
+  }
+  if (!activeKey) return {activeKey:null,nextKey:null};
+  // Próximo: el siguiente key mayor a activeKey
+  const idx = sorted.indexOf(activeKey);
+  const nextKey = (idx>=0 && idx<sorted.length-1)? sorted[idx+1] : null;
+  return {activeKey, nextKey};
+}
+function promoteIfNeeded(alumno, justUsedKey){
+  // Tras usar una clase en justUsedKey, si ese mes quedó en 0 y hay nextKey, promover next.
+  const cal = alumno.calendario?.[justUsedKey];
+  const restantes = cal ? cal.dias.filter(d=> !(cal.usados||[]).includes(d)).length : 0;
+  if (restantes===0){
+    const {activeKey, nextKey} = getActiveAndNextMonth(alumno);
+    // Si el activo resultó en 0 y existe nextKey, eliminar el mes agotado (justUsedKey) y listo.
+    if (nextKey){
+      delete alumno.calendario[justUsedKey];
+      // Nada más que hacer: nextKey ya está en el objeto y será el activo en llamadas futuras.
+      save();
+      return {promoted:true, toKey: nextKey};
+    }
+  }
+  return {promoted:false};
+}
+
+// ---- Voz y notificaciones ----
+function speak(text, voiceName=null){
   if (!("speechSynthesis" in window)) return;
   const u = new SpeechSynthesisUtterance(text);
-  const monica = state.voces.find(v=>/monic(a|á)/i.test(v.name||"")) || null;
-  const vozId = state.config.voz;
   let voz = null;
-  if (monica) voz = monica;
-  else if (vozId) voz = state.voces.find(v=>v.name===vozId);
-  if (!voz) voz = state.voces.find(v=> (v.lang||"").toLowerCase().startsWith("es"));
+  if (voiceName){
+    voz = state.voces.find(v=>v.name===voiceName) || null;
+  } else {
+    const monica = state.voces.find(v=>/monic(a|á)/i.test(v.name||"")) || null;
+    const vozId = state.config.voz;
+    if (monica) voz = monica;
+    else if (vozId) voz = state.voces.find(v=>v.name===vozId);
+    if (!voz) voz = state.voces.find(v=> (v.lang||"").toLowerCase().startsWith("es"));
+  }
   if (voz) u.voice = voz;
   u.rate=1; u.pitch=1; u.volume=1;
   speechSynthesis.cancel();
@@ -131,8 +172,9 @@ function init(){
     const loadVoices = ()=>{
       state.voces = speechSynthesis.getVoices();
       renderVoces();
+      renderVocesList();
       const monica = state.voces.find(v=>/monic(a|á)/i.test(v.name||""));
-      if (monica) { state.config.voz = monica.name; save(); renderConfig(); }
+      if (monica && !state.config.voz) { state.config.voz = monica.name; save(); renderConfig(); }
     };
     loadVoices();
     speechSynthesis.onvoiceschanged = loadVoices;
@@ -197,11 +239,20 @@ function onEntrarAlumno(){
   res.classList.remove("oculto","ok","err");
   const previewImg = $("#previewFotoAlumno");
 
+  const clearAfter = ()=>{
+    setTimeout(()=>{
+      res.classList.add("oculto");
+      setPinDisplay("alumno","");
+      if (previewImg) previewImg.src = "";
+    }, 8000);
+  };
+
   if (!alumno){
     speak("Acceso denegado");
     res.textContent = "Acceso denegado: código no encontrado.";
     res.classList.add("err");
-    previewImg.src = "";
+    if (previewImg) previewImg.src = "";
+    clearAfter();
     return;
   }
   previewImg.src = alumno.fotoBase64 || "";
@@ -211,25 +262,33 @@ function onEntrarAlumno(){
   if (!cal){
     speak("Acceso denegado");
     res.textContent = "Acceso denegado: no tiene calendario asignado este mes.";
-    res.classList.add("err"); return;
+    res.classList.add("err"); clearAfter(); return;
   }
   const hoyStr = fmtDate(hoy);
   const puedeHoy = (cal.dias||[]).includes(hoyStr) && !(cal.usados||[]).includes(hoyStr);
   if (!puedeHoy){
     speak("Acceso denegado");
     res.textContent = "Acceso denegado: hoy no está en sus días permitidos o ya fue usado.";
-    res.classList.add("err"); return;
+    res.classList.add("err"); clearAfter(); return;
   }
+  // usar clase de este mes (mk)
   cal.usados = cal.usados || [];
   cal.usados.push(hoyStr);
-  const restantes = (cal.dias||[]).filter(d=>!cal.usados.includes(d)).length;
-  const aviso = (restantes===1)? "<div class='badge'>Aviso: queda 1 clase, reagendar</div>":"";
+  let restantes = (cal.dias||[]).filter(d=>!cal.usados.includes(d)).length;
+
+  // Si se agotó, promover próximo mes (si existe) y eliminar mk
+  let promoMsg = "";
+  const promo = promoteIfNeeded(alumno, mk);
+  if (promo.promoted){
+    promoMsg = `<div class="badge">Se activó el nuevo mes (${promo.toKey})</div>`;
+  }
+
   const foto = alumno.fotoBase64 ? `<img src="${alumno.fotoBase64}" alt="foto" />` : "";
   res.innerHTML = `<div class="okbox">${foto}
     <div>
       <strong>${alumno.nombre}</strong><br/>
       Clases disponibles este mes: <span class="badge">${restantes}</span>
-      ${aviso}
+      ${promoMsg}
     </div>
   </div>`;
   res.classList.add("ok");
@@ -238,7 +297,7 @@ function onEntrarAlumno(){
   setTimeout(()=>{
     res.classList.add("oculto");
     setPinDisplay("alumno","");
-    $("#previewFotoAlumno").src = "";
+    if (previewImg) previewImg.src = "";
   }, 8000);
 }
 
@@ -331,7 +390,6 @@ function programarAlertaMes(alumno, mk){
   const alerta = new Date(last); alerta.setDate(last.getDate()-1); alerta.setHours(10,0,0,0);
   const now = new Date(); const ms = alerta-now;
   if (ms>0 && ms<2147483647){ setTimeout(()=>{ notify(`Mañana termina la mensualidad de ${alumno.nombre}. Reagenda.`); }, ms); }
-  // Nota: Para alertas en segundo plano se requiere que la app esté abierta o usar Push desde servidor.
 }
 function limpiarDiasPasados(){
   const hoyStr = fmtDate(today());
@@ -347,7 +405,7 @@ function limpiarDiasPasados(){
   save();
 }
 
-// -------- Lista y Panel inferior (toggle) --------
+// -------- Lista y Perfil (con recuadro de próximo mes) --------
 function renderLista(){
   const ul=$("#listaAlumnos"); ul.innerHTML="";
   state.alumnos.forEach(a=>{
@@ -397,15 +455,30 @@ function ocultarPerfil(){
 }
 function mostrarPerfil(id){
   const a=state.alumnos.find(x=>x.id===id); if(!a) return;
-  const mk = new Date().toISOString().slice(0,7);
-  const cal = a.calendario?.[mk];
-  const restantes = cal ? cal.dias.filter(d=> !(cal.usados||[]).includes(d)).length : 0;
-  const aviso = (restantes===1) ? "<div class='badge'>Aviso: queda 1 clase, reagendar</div>" : "";
-  const foto = a.fotoBase64 ? `<img src="${a.fotoBase64}" alt="foto" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:1px solid #222;margin-right:10px"/>` : "";
-  const diasHtml = cal ? cal.dias.map(d=>{
-    const usado = (cal.usados||[]).includes(d);
+  const {activeKey, nextKey} = getActiveAndNextMonth(a);
+  const calAct = activeKey ? a.calendario[activeKey] : null;
+  const restantesAct = calAct ? calAct.dias.filter(d=> !(calAct.usados||[]).includes(d)).length : 0;
+  const diasHtmlAct = calAct ? calAct.dias.map(d=>{
+    const usado = (calAct.usados||[]).includes(d);
     return `<li>${d} ${usado?"<span class='badge'>usado</span>":""}</li>`;
-  }).join("") : "<li>Sin calendario asignado este mes.</li>";
+  }).join("") : "<li>Sin calendario activo.</li>";
+
+  let proxHtml = "";
+  if (nextKey){
+    const calNext = a.calendario[nextKey];
+    const restantesNext = calNext ? calNext.dias.length : 0;
+    const diasHtmlNext = calNext ? calNext.dias.map(d=>`<li>${d}</li>`).join("") : "";
+    proxHtml = `
+      <div class="section">
+        <h5>Próximo mes pagado: <span class="badge">${nextKey}</span></h5>
+        <div>Clases programadas: <span class="badge">${restantesNext}</span></div>
+        <details style="margin-top:6px"><summary>Ver días</summary><ul>${diasHtmlNext}</ul></details>
+        <div class="hint">Cuando se agoten las clases del mes activo, este mes se activará automáticamente y el anterior se eliminará.</div>
+      </div>
+    `;
+  }
+
+  const foto = a.fotoBase64 ? `<img src="${a.fotoBase64}" alt="foto" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:1px solid #222;margin-right:10px"/>` : "";
 
   $("#perfilContenido").innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">${foto}
@@ -414,21 +487,27 @@ function mostrarPerfil(id){
         Código: ${a.codigo} · Tel: ${a.telefono||"—"}
       </div>
     </div>
-    <div>Clases restantes del mes: <span class="badge">${restantes}</span> ${aviso}</div>
-    <details style="margin-top:8px"><summary>Días asignados</summary><ul>${diasHtml}</ul></details>
-    <div class="acciones" style="margin-top:10px">
-      <button class="primary" id="btnReagendar">Reagendar (si queda 1 clase)</button>
+
+    <div class="section">
+      <h5>Mes activo: <span class="badge">${activeKey || "—"}</span></h5>
+      <div>Clases restantes: <span class="badge">${restantesAct}</span></div>
+      <details style="margin-top:6px"><summary>Días asignados</summary><ul>${diasHtmlAct}</ul></details>
+      <div class="acciones" style="margin-top:8px">
+        <button class="primary" id="btnReagendar">Reagendar (si queda 1 clase)</button>
+      </div>
     </div>
+
+    ${proxHtml}
   `;
   $("#btnReagendar").addEventListener("click", ()=>reagendarSiAplica(a.id));
   $("#panelPerfil").classList.remove("oculto");
 }
 function reagendarSiAplica(id){
   const a=state.alumnos.find(x=>x.id===id);
-  const mk=new Date().toISOString().slice(0,7);
-  const cal=a.calendario?.[mk];
+  const {activeKey} = getActiveAndNextMonth(a);
+  const cal = activeKey ? a.calendario[activeKey] : null;
   const restantes = cal ? cal.dias.filter(d=> !(cal.usados||[]).includes(d)).length : 0;
-  if (restantes!==1){ alert("Solo puede reagendar cuando quede 1 clase."); return; }
+  if (restantes!==1){ alert("Solo puede reagendar cuando quede 1 clase en el mes activo."); return; }
   const next=new Date(); next.setMonth(next.getMonth()+1);
   const nextKey=next.toISOString().slice(0,7);
   $("#mesAsignacion").value=nextKey;
@@ -442,10 +521,11 @@ function reagendarSiAplica(id){
   $("#tab-calendario").classList.remove("oculto");
 }
 
-// -------- Config --------
+// -------- Config: voces --------
 function renderConfig(){
   $("#cfgPin").value = state.config.pinAdmin || "1234";
   renderVoces();
+  renderVocesList();
 }
 function renderVoces(){
   const sel=$("#cfgVoz"); if(!sel) return;
@@ -454,8 +534,33 @@ function renderVoces(){
     const o=document.createElement("option"); o.value=v.name; o.textContent=`${v.name} (${v.lang})`; sel.appendChild(o);
   });
   const monica = (state.voces||[]).find(v=>/monic(a|á)/i.test(v.name||""));
-  if (monica) sel.value = monica.name;
-  else if (state.config.voz) sel.value = state.config.voz;
+  if (state.config.voz && (state.voces||[]).some(v=>v.name===state.config.voz)) sel.value = state.config.voz;
+  else if (monica) sel.value = monica.name;
+}
+function renderVocesList(){
+  const cont=$("#listaVoces"); if(!cont) return;
+  cont.innerHTML = "";
+  const vocesES = (state.voces||[]).filter(v=>(v.lang||"").toLowerCase().startsWith("es"));
+  if (!vocesES.length){ cont.innerHTML = "<div class='hint'>No se detectaron voces en español en este dispositivo.</div>"; return; }
+  vocesES.forEach(v=>{
+    const card=document.createElement("div");
+    card.className="voicecard";
+    card.innerHTML = `
+      <div><strong>${v.name}</strong> <span class="badge">${v.lang}</span></div>
+      <div class="acciones">
+        <button class="ghost btnProbar">Probar</button>
+        <button class="primary btnSeleccionar">Seleccionar</button>
+      </div>
+    `;
+    card.querySelector(".btnProbar").addEventListener("click", ()=>{
+      speak("Esta es una prueba de voz para acceso otorgado y acceso denegado en la Academia de Danza N H.", v.name);
+    });
+    card.querySelector(".btnSeleccionar").addEventListener("click", ()=>{
+      state.config.voz = v.name; save(); renderConfig();
+      alert(`Voz seleccionada: ${v.name}`);
+    });
+    cont.appendChild(card);
+  });
 }
 function onGuardarConfig(){
   const p=$("#cfgPin").value.trim();

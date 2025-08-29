@@ -30,7 +30,7 @@ main{padding:16px;max-width:1100px;margin:0 auto}
 .acciones.compactas button{padding:8px 12px;font-size:14px}
 .resultado{margin-top:14px;padding:14px;border-radius:12px}
 .resultado.ok{background:#0b2f1a;color:#b6ffcc;border:1px solid #1d6d38}
-.resultado.err{background:#2f0b0b;color:#ffb6b6;border:1px solid #6d1d1d}
+.resultado.err{background:#2f0b0b;color:#ffb6b6;border:1px solid #1d1d1d}
 .hint{color:var(--muted)}
 .tabs{display:flex;gap:8px;margin:10px 0 16px}
 .tabs .tab{background:#1e2128;color:#c9d1d9;border-radius:10px;padding:8px 10px}
@@ -54,6 +54,11 @@ label{display:flex;flex-direction:column;gap:6px}
 footer{padding:20px;color:#7b8490;text-align:center}
 .okbox{display:flex;align-items:center;gap:12px}
 .okbox img{width:56px;height:56px;border-radius:50%;object-fit:cover;border:1px solid #222}
+.voicelist{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:8px}
+.voicecard{border:1px solid #222;border-radius:12px;padding:10px;background:#0f1116}
+.voicecard .acciones{margin-top:8px}
+.section{border:1px solid #222;border-radius:12px;padding:10px;background:#0f1116;margin-top:10px}
+.section h5{margin:0 0 6px 0}
 @media (hover:hover){
   .dia:hover{background:#0d121a}
 }
