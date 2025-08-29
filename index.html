@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Academia NH - Control de Accesos</title>
+  <meta name="theme-color" content="#0b0c10" />
+  <link rel="manifest" href="manifest.webmanifest" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -12,6 +14,7 @@
     <nav>
       <button id="btnModoAlumno" class="primary">Modo Alumno</button>
       <button id="btnModoAdmin" class="secondary">Modo Administrador</button>
+      <button id="btnInstalar" class="ghost oculto">Instalar app</button>
     </nav>
   </header>
 
@@ -19,14 +22,20 @@
     <!-- Vista de acceso alumno -->
     <section id="vistaAlumno" class="vista activa">
       <h2>Entrada de Alumno</h2>
-      <div class="panel">
-        <div class="pin-display" aria-label="código ingresado"><span id="pinAlumno">____</span></div>
-        <div class="teclado" role="group" aria-label="teclado numérico">
-          <!-- keypad -->
+      <div class="panel panel-alumno">
+        <div class="col-izq">
+          <div class="pin-display mini" aria-label="código ingresado"><span id="pinAlumno">____</span></div>
+          <div class="teclado mini" role="group" aria-label="teclado numérico"></div>
+          <div class="acciones compactas">
+            <button id="btnEntrarAlumno" class="primary">Entrar</button>
+            <button id="btnBorrarAlumno" class="ghost">Borrar</button>
+          </div>
         </div>
-        <div class="acciones">
-          <button id="btnEntrarAlumno" class="primary">Entrar</button>
-          <button id="btnBorrarAlumno" class="ghost">Borrar</button>
+        <div class="col-der">
+          <div class="foto-preview">
+            <img id="previewFotoAlumno" alt="Foto" />
+            <small class="hint">La foto aparece al ingresar</small>
+          </div>
         </div>
       </div>
       <div id="resultadoAlumno" class="resultado oculto"></div>
@@ -35,15 +44,15 @@
     <!-- Vista de acceso admin -->
     <section id="vistaAdminLogin" class="vista">
       <h2>Acceso Administrador</h2>
-      <div class="panel">
-        <div class="pin-display"><span id="pinAdmin">____</span></div>
-        <div class="teclado" id="tecladoAdmin" role="group" aria-label="teclado numérico admin"></div>
-        <div class="acciones">
+      <div class="panel panel-admin">
+        <div class="pin-display mini"><span id="pinAdmin">____</span></div>
+        <div class="teclado mini" id="tecladoAdmin" role="group" aria-label="teclado numérico admin"></div>
+        <div class="acciones compactas">
           <button id="btnEntrarAdmin" class="primary">Entrar</button>
           <button id="btnBorrarAdmin" class="ghost">Borrar</button>
         </div>
       </div>
-      <p class="hint">Código por defecto: <strong>1234</strong> (puedes cambiarlo en Configuración).</p>
+      <p class="hint">PIN por defecto: <strong>1234</strong> (cámbialo en Configuración).</p>
     </section>
 
     <!-- Vista admin principal -->
@@ -112,7 +121,7 @@
             <input type="month" id="mesAsignacion">
           </label>
         </div>
-        <p class="hint">Selecciona exactamente tantos días como el paquete. Las clases no se acumulan: al finalizar el día, las no utilizadas se pierden.</p>
+        <p class="hint">Selecciona exactamente tantos días como el paquete. Las clases no se acumulan.</p>
         <div id="calendario"></div>
         <div class="acciones">
           <button id="btnGuardarCalendario" class="primary">Guardar calendario</button>
@@ -125,7 +134,7 @@
         <div class="lista-contenedor">
           <ul id="listaAlumnos" class="lista"></ul>
         </div>
-        <div id="panelPerfil" class="perfil sticky">
+        <div id="panelPerfil" class="perfil sticky oculto">
           <h4>Perfil</h4>
           <div id="perfilContenido">Selecciona un alumno para ver su perfil.</div>
         </div>
@@ -147,7 +156,7 @@
           <button id="btnImportar" class="ghost">Importar respaldo</button>
           <input type="file" id="fileImportar" accept="application/json" class="oculto" />
         </div>
-        <p class="hint">La app guarda todo localmente (sin internet) usando tu dispositivo. Para notificaciones un día antes de terminar la mensualidad se intentará usar notificaciones del navegador cuando la app esté abierta.</p>
+        <p class="hint">Instala la app (botón “Instalar app”) para mejor experiencia y uso sin conexión.</p>
       </div>
     </section>
   </main>

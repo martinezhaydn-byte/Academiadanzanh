@@ -3,10 +3,10 @@
   --bg:#0b0c10; --card:#15171c; --ink:#e6e6e6; --muted:#9aa0a6;
   --primary:#7c4dff; --accent:#00e5ff; --danger:#ff5252; --ok:#00c853;
 }
-html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Arial, sans-serif}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Noto Sans,Ubuntu,Cantarell,Arial,sans-serif}
 header{padding:16px 20px;border-bottom:1px solid #222;position:sticky;top:0;background:linear-gradient(180deg,#0b0c10,#0b0c10cc)}
 h1{margin:0;font-size:20px}
-nav{margin-top:8px;display:flex;gap:8px}
+nav{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
 button{font-size:16px;border:0;border-radius:10px;padding:10px 14px;cursor:pointer}
 button.primary{background:var(--primary);color:white}
 button.secondary{background:#2a2e35;color:var(--ink)}
@@ -16,10 +16,18 @@ main{padding:16px;max-width:1100px;margin:0 auto}
 .vista{display:none}
 .vista.activa{display:block}
 .panel{background:var(--card);border:1px solid #222;padding:16px;border-radius:14px}
+.panel-alumno{display:grid;grid-template-columns:1fr 160px;gap:12px;align-items:start}
+.panel-admin{max-width:420px;margin:0 auto}
+.col-der{display:flex;justify-content:center}
+.foto-preview{display:flex;flex-direction:column;align-items:center;gap:6px}
+.foto-preview img{width:120px;height:120px;border-radius:50%;object-fit:cover;border:1px solid #222;background:#0f1116}
 .pin-display{display:flex;justify-content:center;align-items:center;height:52px;background:#0f1116;border:1px solid #222;border-radius:12px;font-size:28px;letter-spacing:6px;margin-bottom:12px}
+.pin-display.mini{height:40px;font-size:22px;letter-spacing:4px}
 .teclado{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .teclado button{padding:16px 0;border-radius:14px;background:#1c1f26;color:#eaecef;font-weight:700;font-size:22px;touch-action:manipulation}
+.teclado.mini button{padding:10px 0;font-size:18px;border-radius:12px}
 .acciones{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+.acciones.compactas button{padding:8px 12px;font-size:14px}
 .resultado{margin-top:14px;padding:14px;border-radius:12px}
 .resultado.ok{background:#0b2f1a;color:#b6ffcc;border:1px solid #1d6d38}
 .resultado.err{background:#2f0b0b;color:#ffb6b6;border:1px solid #6d1d1d}
@@ -44,6 +52,8 @@ label{display:flex;flex-direction:column;gap:6px}
 .dia.activo{outline:2px solid var(--accent);background:#0a1a1d}
 .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#19202b;border:1px solid #2a2e35;color:#a7c7ff;margin-left:6px;font-size:12px}
 footer{padding:20px;color:#7b8490;text-align:center}
+.okbox{display:flex;align-items:center;gap:12px}
+.okbox img{width:56px;height:56px;border-radius:50%;object-fit:cover;border:1px solid #222}
 @media (hover:hover){
   .dia:hover{background:#0d121a}
 }

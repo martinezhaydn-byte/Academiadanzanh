@@ -1,36 +1,51 @@
-
-const CACHE_NAME = 'academia-cache-v1';
+// sw.js - Service Worker para PWA Academia NH
+const CACHE_NAME = "academia-nh-cache-v1";
 const ASSETS = [
-  './',
-  './index.html',
-  './styles.css',
-  './app.js',
-  './manifest.json',
-  './assets/logo.png'
+  "./",
+  "./index.html",
+  "./style.css",
+  "./app.js",
+  "./manifest.webmanifest",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png"
 ];
 
-self.addEventListener('install', (e) => {
+self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)));
   self.skipWaiting();
 });
 
-self.addEventListener('activate', (e) => {
+self.addEventListener("activate", (e) => {
   e.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.map(k => k !== CACHE_NAME && caches.delete(k))))
+    caches.keys().then(keys => Promise.all(
+      keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+    ))
   );
   self.clients.claim();
 });
 
-self.addEventListener('fetch', (e) => {
-  e.respondWith(
-    caches.match(e.request).then(res => res || fetch(e.request))
-  );
+self.addEventListener("fetch", (e) => {
+  const req = e.request;
+  // Cache-first for same-origin GET
+  if (req.method === "GET" && new URL(req.url).origin === location.origin) {
+    e.respondWith(
+      caches.match(req).then(cached => cached || fetch(req).then(res => {
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(req, copy));
+        return res;
+      }).catch(()=> caches.match("./index.html")))
+    );
+  }
 });
 
-// Receive messages to show notifications (no scheduled triggers for wide support)
-self.addEventListener('message', (event) => {
-  const { type, title, options } = event.data || {};
-  if (type === 'notify') {
-    self.registration.showNotification(title, options);
-  }
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({type: "window"}).then(clientsArr => {
+      for (const c of clientsArr) {
+        if (c.url.includes(self.registration.scope)) { c.focus(); return; }
+      }
+      clients.openWindow("./");
+    })
+  );
 });
