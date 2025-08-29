@@ -1,167 +1,184 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>Academia de Danza - Control de Clases</title>
-  <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Academia de Danza — Control de Clases</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header>
-    <img src="assets/logo.png" alt="logo">
+  <header class="app-header">
     <h1>Academia de Danza — Control de Clases</h1>
-    <div class="tabs">
-      <div class="tab active" id="tab-alumno">Alumno</div>
-      <div class="tab" id="tab-admin">Administrador</div>
-    </div>
+    <nav class="mode-switch">
+      <button id="btnModoAlumno" class="secondary">Modo Alumno</button>
+      <button id="btnModoAdmin" class="primary">Modo Administrador</button>
+    </nav>
   </header>
 
-  <main>
-    <!-- ALUMNO -->
-    <section class="card" id="alumno-panel">
+  <main id="main">
+    <!-- PANE: Alumno -->
+    <section id="paneAlumno" class="pane hidden">
       <h2>Acceso de Alumno</h2>
-      <div class="row">
-        <div class="input" style="flex:0 1 280px">
-          <label>Código de 4 dígitos</label>
-          <div class="code-box">
-            <div id="code-display" class="code-dots">
-              <div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
-            </div>
-            <button class="secondary" id="clear-code">Limpiar</button>
-          </div>
-          <div class="kbd" id="kbd-alumno">
-            <button>1</button><button>2</button><button>3</button>
-            <button>4</button><button>5</button><button>6</button>
-            <button>7</button><button>8</button><button>9</button>
-            <button class="wide" data-action="enter">ENTRAR</button>
-            <button>0</button>
-            <button class="wide" data-action="back">⌫</button>
-          </div>
-          <p class="small">Consejo: No hay zoom al digitar. La voz es en español (busca “Mónica” si tu dispositivo la tiene; hay fallback a otras voces es-ES/es-MX).</p>
+      <p class="muted">Ingresa tu código de 4 dígitos para registrar tu asistencia de hoy.</p>
+      <div class="pad-container">
+        <div class="pin-display" id="alumnoPin">••••</div>
+        <div class="numpad" data-target="alumno">
+          <!-- números se insertan por JS -->
         </div>
-        <div class="input" style="flex:1">
-          <label>Resultado</label>
-          <div id="result-alumno" class="notice">Ingrese su código para continuar.</div>
-          <div id="alumno-perfil" class="hide">
-            <hr/>
-            <div class="row" style="align-items:center">
-              <img id="alumno-foto" src="" alt="foto" style="width:84px;height:84px;border-radius:10px;object-fit:cover;background:#0003">
+      </div>
+
+      <div id="alumnoFeedback" class="feedback"></div>
+      <div id="alumnoPerfil" class="alumno-perfil hidden">
+        <img id="alumnoFoto" src="assets/default-avatar.png" alt="Foto perfil" />
+        <div class="perfil-info">
+          <div class="perfil-nombre" id="alumnoNombre">Nombre</div>
+          <div class="perfil-clases">Clases disponibles: <strong id="alumnoClasesRestantes">0</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PANE: Admin login -->
+    <section id="paneAdminLogin" class="pane hidden">
+      <h2>Acceso Administrador</h2>
+      <p class="muted">Ingresa tu código de 4 dígitos.</p>
+      <div class="pad-container">
+        <div class="pin-display" id="adminPin">••••</div>
+        <div class="numpad" data-target="admin">
+          <!-- números se insertan por JS -->
+        </div>
+      </div>
+      <div class="muted center tiny">Código por defecto: <code>1234</code> (puedes cambiarlo después en Ajustes)</div>
+      <div id="adminLoginMsg" class="feedback"></div>
+    </section>
+
+    <!-- PANE: Admin dashboard -->
+    <section id="paneAdmin" class="pane hidden">
+      <div class="admin-topbar">
+        <div class="tabs">
+          <button class="tab active" data-tab="tabRegistrar">Registrar Alumno</button>
+          <button class="tab" data-tab="tabCalendario">Calendario</button>
+          <button class="tab" data-tab="tabLista">Lista</button>
+          <button class="tab" data-tab="tabAjustes">Ajustes</button>
+        </div>
+        <button id="btnSalirAdmin" class="ghost">Salir</button>
+      </div>
+
+      <div id="notificaciones" class="notifs hidden"></div>
+
+      <section id="tabRegistrar" class="tabpane">
+        <h3>Registro de Alumno</h3>
+        <form id="formRegistro" class="grid2">
+          <label>Nombre
+            <input type="text" id="regNombre" required placeholder="Nombre completo" />
+          </label>
+          <label>Código (4 dígitos)
+            <input type="text" id="regCodigo" inputmode="numeric" pattern="\d{4}" maxlength="4" required placeholder="Ej. 2048" />
+          </label>
+          <label>Edad
+            <input type="number" id="regEdad" min="3" max="99" required />
+          </label>
+          <label>Fecha de nacimiento
+            <input type="date" id="regFechaNac" required />
+          </label>
+          <label>Teléfono
+            <input type="tel" id="regTelefono" placeholder="+52 ..." />
+          </label>
+          <label>Foto de perfil
+            <input type="file" id="regFoto" accept="image/*" />
+          </label>
+        </form>
+        <div class="actions">
+          <button id="btnCrearAlumno" class="primary">Crear nuevo alumno</button>
+          <button id="btnGuardarCambios" class="secondary" disabled>Guardar</button>
+        </div>
+        <div id="registroMsg" class="feedback"></div>
+      </section>
+
+      <section id="tabCalendario" class="tabpane hidden">
+        <h3>Calendario de Clases</h3>
+        <div class="grid3">
+          <label>Selecciona Alumno
+            <select id="calAlumno"></select>
+          </label>
+          <label>Mes
+            <div class="month-switch">
+              <button id="calPrev" class="ghost">◀</button>
+              <span id="calMes"></span>
+              <button id="calNext" class="ghost">▶</button>
+            </div>
+          </label>
+          <label>Paquete
+            <select id="calPaquete">
+              <option value="1">Clase suelta (1)</option>
+              <option value="2">2 clases</option>
+              <option value="3">3 clases</option>
+              <option value="4">4 clases</option>
+              <option value="5">5 clases</option>
+              <option value="6">6 clases</option>
+              <option value="7">7 clases</option>
+              <option value="8">8 clases</option>
+              <option value="9">9 clases</option>
+              <option value="10">10 clases</option>
+              <option value="11">11 clases</option>
+              <option value="12">12 clases</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="calendarGrid" class="calendar"></div>
+        <div class="actions">
+          <button id="btnAsignarFechas" class="primary">Asignar fechas</button>
+          <button id="btnLimpiarSeleccion" class="ghost">Limpiar selección</button>
+        </div>
+        <div id="calMsg" class="feedback"></div>
+      </section>
+
+      <section id="tabLista" class="tabpane hidden">
+        <h3>Alumnos Inscritos</h3>
+        <div class="list-layout">
+          <div class="list-panel">
+            <input id="filtro" type="search" placeholder="Buscar por nombre o código..." />
+            <div id="listaAlumnos" class="lista scroll"></div>
+          </div>
+          <div class="profile-panel" id="panelPerfilVacio">
+            <div class="muted center">Selecciona un alumno en la lista para ver su perfil aquí.</div>
+          </div>
+          <div class="profile-panel hidden" id="panelPerfil">
+            <div class="perfil-header">
+              <img id="pFoto" src="assets/default-avatar.png" alt="Foto perfil" />
               <div>
-                <div id="alumno-nombre" style="font-weight:700"></div>
-                <div id="alumno-clases" class="small"></div>
+                <h4 id="pNombre">Nombre</h4>
+                <div class="muted tiny">Código: <span id="pCodigo"></span> • Tel: <span id="pTelefono"></span></div>
               </div>
             </div>
+            <div class="perfil-body">
+              <div><strong>Clases restantes:</strong> <span id="pRestantes">0</span></div>
+              <div><strong>Mes actual:</strong> <span id="pMesActual"></span></div>
+              <div class="chips" id="pFechas"></div>
+            </div>
+            <div class="actions">
+              <button id="btnReagendar" class="secondary" disabled>Reagendar siguiente mes</button>
+            </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- ADMIN LOGIN -->
-    <section class="card hide" id="admin-login">
-      <h2>Entrar como Administrador</h2>
-      <div class="row">
-        <div class="input" style="flex:0 1 280px">
-          <label>PIN de Administrador (4 dígitos)</label>
-          <div class="code-box">
-            <div id="admincode-display" class="code-dots">
-              <div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
-            </div>
-            <button class="secondary" id="admin-clear-code">Limpiar</button>
-          </div>
-          <div class="kbd" id="kbd-admin">
-            <button>1</button><button>2</button><button>3</button>
-            <button>4</button><button>5</button><button>6</button>
-            <button>7</button><button>8</button><button>9</button>
-            <button class="wide" data-action="enter">ENTRAR</button>
-            <button>0</button>
-            <button class="wide" data-action="back">⌫</button>
-          </div>
+      <section id="tabAjustes" class="tabpane hidden">
+        <h3>Ajustes</h3>
+        <div class="grid2">
+          <label>Cambiar código de Administrador
+            <input id="ajPin" type="text" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="Nuevo PIN (4 dígitos)" />
+          </label>
+          <button id="btnGuardarPin" class="secondary">Guardar PIN</button>
         </div>
-        <div class="input" style="flex:1">
-          <label>Consejos</label>
-          <div class="notice">
-            Predeterminado: <b>1234</b>. Cambia el PIN en <b>Configuración</b> una vez dentro.<br>
-            Para notificaciones un día antes del fin de mes, permite las notificaciones del sitio.
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ADMIN APP -->
-    <section class="card hide" id="admin-app">
-      <h2>Administrador</h2>
-      <div class="row">
-        <!-- Registrar/Editar Alumno -->
-        <div class="input" style="flex:1;min-width:280px">
-          <label>Registro de Alumno</label>
-          <div class="row">
-            <div class="input"><small>Nombre</small><input id="reg-nombre" placeholder="Nombre completo"></div>
-            <div class="input"><small>Código (4 dígitos)</small><input id="reg-codigo" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="0000"></div>
-            <div class="input"><small>Teléfono (opcional)</small><input id="reg-telefono" inputmode="tel" placeholder="10 dígitos"></div>
-            <div class="input"><small>Edad</small><input id="reg-edad" inputmode="numeric" pattern="[0-9]*" placeholder="Edad"></div>
-            <div class="input"><small>Fecha de Nacimiento</small><input id="reg-dob" type="date"></div>
-            <div class="input"><small>Foto de Perfil</small><input id="reg-foto" type="file" accept="image/*"></div>
-          </div>
-          <div class="row">
-            <div class="input">
-              <small>Paquete de clases</small>
-              <select id="reg-paquete">
-                <option value="1">Clase suelta (1)</option>
-                <option value="2">2 clases</option>
-                <option value="3">3 clases</option>
-                <option value="4">4 clases</option>
-                <option value="5">5 clases</option>
-                <option value="6">6 clases</option>
-                <option value="7">7 clases</option>
-                <option value="8">8 clases</option>
-                <option value="9">9 clases</option>
-                <option value="10">10 clases</option>
-                <option value="11">11 clases</option>
-                <option value="12">12 clases</option>
-              </select>
-            </div>
-            <div class="input">
-              <small>Mes a programar</small>
-              <input id="reg-mes" type="month">
-            </div>
-          </div>
-          <div class="calendar" id="cal-panel">
-            <div class="monthbar">
-              <div><b>Selecciona exactamente los días del paquete</b></div>
-              <div class="small" id="cal-counter">0 seleccionados</div>
-            </div>
-            <div class="grid" id="cal-grid"></div>
-          </div>
-          <div class="buttons" style="margin-top:.75rem">
-            <button id="btn-guardar" class="ok">Crear nuevo alumno / Guardar cambios</button>
-            <button class="secondary" id="btn-limpiar">Limpiar</button>
-          </div>
-          <div class="small">Nota: las clases no son acumulables. Si el alumno falta en el día programado, al terminar ese día la clase se marca como “perdida”.</div>
-        </div>
-
-        <!-- Lista + Perfil -->
-        <div class="list" style="flex:1.2">
-          <div class="students" id="lista-alumnos"></div>
-          <div class="profile-pane">
-            <div id="perfil-detalle">
-              <div class="small">Selecciona “Perfil” en la lista para ver la información del alumno aquí abajo.</div>
-            </div>
-            <div class="sticky-bottom">
-              <div class="buttons">
-                <button id="btn-reagendar" class="secondary hide">Reagendar siguiente mes</button>
-                <button id="btn-export" class="secondary">Exportar respaldo</button>
-                <button id="btn-import" class="secondary">Importar respaldo</button>
-                <button id="btn-config" class="secondary">Configuración</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+        <div class="muted tiny">Voz: se intentará usar <em>Mónica (español)</em> si está disponible en tu dispositivo; de lo contrario se seleccionará la primera voz en español encontrada.</div>
+      </section>
     </section>
   </main>
 
-  <div id="toast" class="toast hide"></div>
+  <footer class="app-footer">
+    <small>© Academia de Danza — App de Control (versión local)</small>
+  </footer>
 
   <script src="app.js"></script>
 </body>
