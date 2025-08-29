@@ -114,7 +114,10 @@ function actualizarPinDisplay(numpad){
   const val = (numpad.dataset.value||'').slice(-4);
   numpad.dataset.value = val;
   const disp = qs(target==='admin' ? '#adminPin' : '#alumnoPin');
-  disp.textContent = val.padEnd(4,'•').replace(/./g, (c,i)=> i<val.length ? '•' : '•');
+  // Mostrar los dígitos escritos y guiones para lo faltante (retro visual claro)
+  const shown = (val + '____').slice(0,4).split('').map(ch=> ch==='_' ? '·' : ch).join('');
+  disp.textContent = shown;
+  disp.classList.add('show-digits');
 }
 
 // === Alumnos helpers ===
@@ -489,6 +492,7 @@ function bootstrap(){
   const padAlumno = document.createElement('div');
   padAlumno.className = 'pad';
   const numpadAlumno = qs('.numpad[data-target="alumno"]');
+  numpadAlumno.addEventListener('dblclick', e=> e.preventDefault());
   crearNumpad(numpadAlumno, ()=>{
     const val = (numpadAlumno.dataset.value||'').padStart(4,'0').slice(0,4);
     if (!/^\d{4}$/.test(val)) return;
@@ -501,6 +505,7 @@ function bootstrap(){
   actualizarPinDisplay(numpadAlumno);
 
   const numpadAdmin = qs('.numpad[data-target="admin"]');
+  numpadAdmin.addEventListener('dblclick', e=> e.preventDefault());
   crearNumpad(numpadAdmin, ()=>{
     const val = (numpadAdmin.dataset.value||'').padStart(4,'0').slice(0,4);
     if (!/^\d{4}$/.test(val)) return;
@@ -511,6 +516,18 @@ function bootstrap(){
     actualizarPinDisplay(numpadAdmin);
   });
   actualizarPinDisplay(numpadAdmin);
+
+
+  // tabs
+  qsa('.tab').forEach(btn=>{
+    btn.onclick = ()=>{
+      const id = btn.dataset.tab;
+      setTab(id);
+      if (id==='tabCalendario'){ actualizarSelectCal(); renderCalendario(); }
+      if (id==='tabLista'){ renderLista(qs('#filtro').value); }
+      if (id==='tabAjustes'){ /* nothing extra */ }
+    };
+  });
 
   // registrar & editar
   qs('#btnCrearAlumno').onclick = crearAlumno;

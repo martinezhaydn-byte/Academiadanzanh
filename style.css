@@ -103,3 +103,11 @@ input,select{border:1px solid #e5e7eb;border-radius:10px;padding:.6rem .7rem;bac
 /* Month switch */
 .month-switch{display:flex;align-items:center;gap:.5rem}
 .month-switch span{font-weight:800}
+
+
+/* Evitar zoom/salto en iOS al tocar botones del pad */
+html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
+button, .nbtn { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+
+/* PIN: estilo que muestra dígitos escritos */
+.pin-display.show-digits{ letter-spacing:.3rem; background:#0f172a; color:#e5e7f0; }
