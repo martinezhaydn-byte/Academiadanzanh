@@ -131,6 +131,10 @@
 
       <div class="tab-content oculto" id="tab-lista">
         <h3>Alumnos inscritos</h3>
+        <div class="acciones" style="margin-bottom:8px;gap:8px">
+          <input id="buscarAlumno" type="search" placeholder="Buscar por nombre o código..." />
+          <button id="btnLimpiarBusqueda" class="ghost">Limpiar</button>
+        </div>
         <div class="lista-contenedor">
           <ul id="listaAlumnos" class="lista"></ul>
         </div>
@@ -148,6 +152,12 @@
           </label>
           <label>Voz (español) para anuncios
             <select id="cfgVoz"></select>
+          </label>
+          <label>Orden de lista
+            <select id="cfgOrden">
+              <option value="asc">A → Z</option>
+              <option value="desc">Z → A</option>
+            </select>
           </label>
         </div>
         <div class="acciones">

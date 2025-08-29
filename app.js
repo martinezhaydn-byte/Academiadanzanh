@@ -1,17 +1,18 @@
-/* App Academia NH v5 (PWA) — mejoras:
-  - Mes "en cola" (nuevo mes pagado): si el alumno paga/reagenda mientras queda 1 clase del mes actual,
-    se muestra un recuadro del próximo mes. Cuando se usa la última clase del mes actual, el sistema
-    promueve automáticamente el "próximo mes" a activo y elimina el mes anterior.
-  - Mantiene: limpieza a los 8s en acceso denegado, prueba/selección de voces, etc.
+/* App Academia NH v7 (PWA)
+  - Búsqueda por nombre o código en Lista (acento-insensible).
+  - Orden configurable A→Z o Z→A desde Configuración. Aplica a Lista y selector de Calendario.
+  - Mantiene: mes en cola y promoción automática, limpieza 8s en denegado, prueba/selección de voces, etc.
 */
 const $ = (q,ctx=document)=>ctx.querySelector(q);
 const $$ = (q,ctx=document)=>Array.from(ctx.querySelectorAll(q));
+const collator = new Intl.Collator('es', {sensitivity:'base', numeric:false});
 
 const state = {
   alumnos: [],
-  config: { pinAdmin: "1234", voz: null },
+  config: { pinAdmin: "1234", voz: null, orden: "asc" },
   voces: [],
-  uiPerfilOpenId: ""
+  uiPerfilOpenId: "",
+  filtro: ""
 };
 const LS_KEY = "academia_nh_app_v1";
 
@@ -22,7 +23,7 @@ function load(){
     try{
       const data = JSON.parse(raw);
       state.alumnos = data.alumnos||[];
-      state.config = Object.assign({pinAdmin:"1234", voz:null}, data.config||{});
+      state.config = Object.assign({pinAdmin:"1234", voz:null, orden:"asc"}, data.config||{});
     }catch(e){console.warn(e);}
   }
 }
@@ -30,14 +31,14 @@ function uid(){ return "a"+Math.random().toString(36).slice(2,9); }
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 function monthKeyFromInput(v){ return v || new Date().toISOString().slice(0,7); }
 function today(){ const d=new Date(); d.setHours(0,0,0,0); return d; }
+function norm(s){ return (s||"").toString().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim(); }
 
-// ---- Gestión de meses (activo y en cola) ----
+// ---- Gestión de meses ----
 function sortKeysAsc(keys){ return keys.sort(); }
 function getActiveAndNextMonth(alumno){
   const keys = Object.keys(alumno.calendario||{});
   if (!keys.length) return {activeKey:null,nextKey:null};
   const sorted = sortKeysAsc(keys.slice());
-  // Activo: el más antiguo que aún tenga clases (días - usados > 0)
   let activeKey = null;
   for (const k of sorted){
     const cal = alumno.calendario[k];
@@ -45,21 +46,17 @@ function getActiveAndNextMonth(alumno){
     if (restantes>0) { activeKey = k; break; }
   }
   if (!activeKey) return {activeKey:null,nextKey:null};
-  // Próximo: el siguiente key mayor a activeKey
   const idx = sorted.indexOf(activeKey);
   const nextKey = (idx>=0 && idx<sorted.length-1)? sorted[idx+1] : null;
   return {activeKey, nextKey};
 }
 function promoteIfNeeded(alumno, justUsedKey){
-  // Tras usar una clase en justUsedKey, si ese mes quedó en 0 y hay nextKey, promover next.
   const cal = alumno.calendario?.[justUsedKey];
   const restantes = cal ? cal.dias.filter(d=> !(cal.usados||[]).includes(d)).length : 0;
   if (restantes===0){
-    const {activeKey, nextKey} = getActiveAndNextMonth(alumno);
-    // Si el activo resultó en 0 y existe nextKey, eliminar el mes agotado (justUsedKey) y listo.
+    const { nextKey } = getActiveAndNextMonth(alumno);
     if (nextKey){
       delete alumno.calendario[justUsedKey];
-      // Nada más que hacer: nextKey ya está en el objeto y será el activo en llamadas futuras.
       save();
       return {promoted:true, toKey: nextKey};
     }
@@ -158,8 +155,11 @@ function init(){
   $("#selPaquete").addEventListener("change", validarSeleccionCalendario);
   $("#mesAsignacion").addEventListener("change", renderCalendarioActual);
 
-  // Lista
+  // Lista + búsqueda
+  $("#buscarAlumno").addEventListener("input", (e)=>{ state.filtro = e.target.value; renderLista(); });
+  $("#btnLimpiarBusqueda").addEventListener("click", ()=>{ state.filtro=""; $("#buscarAlumno").value=""; renderLista(); });
   renderLista();
+
   // Config
   renderConfig();
   $("#btnGuardarConfig").addEventListener("click", onGuardarConfig);
@@ -271,12 +271,10 @@ function onEntrarAlumno(){
     res.textContent = "Acceso denegado: hoy no está en sus días permitidos o ya fue usado.";
     res.classList.add("err"); clearAfter(); return;
   }
-  // usar clase de este mes (mk)
   cal.usados = cal.usados || [];
   cal.usados.push(hoyStr);
   let restantes = (cal.dias||[]).filter(d=>!cal.usados.includes(d)).length;
 
-  // Si se agotó, promover próximo mes (si existe) y eliminar mk
   let promoMsg = "";
   const promo = promoteIfNeeded(alumno, mk);
   if (promo.promoted){
@@ -333,10 +331,22 @@ function onGuardarAlumno(e){
   alert("Alumno guardado.");
 }
 
+// ---- Helpers de orden y filtro ----
+function orderedAlumnos(){
+  const arr = state.alumnos.slice().sort((a,b)=>collator.compare(a.nombre||"", b.nombre||""));
+  return (state.config.orden==="desc") ? arr.reverse() : arr;
+}
+function filteredAlumnos(){
+  const f = norm(state.filtro);
+  if (!f) return orderedAlumnos();
+  return orderedAlumnos().filter(a=> norm(a.nombre).includes(f) || norm(a.codigo).includes(f));
+}
+
 // -------- Calendario --------
 function poblarSelectAlumnos(sel){
   sel.innerHTML = "";
-  state.alumnos.forEach(a=>{
+  const ordenados = orderedAlumnos();
+  ordenados.forEach(a=>{
     const o=document.createElement("option"); o.value=a.id; o.textContent=`${a.nombre} (${a.codigo})`; sel.appendChild(o);
   });
 }
@@ -405,10 +415,11 @@ function limpiarDiasPasados(){
   save();
 }
 
-// -------- Lista y Perfil (con recuadro de próximo mes) --------
+// -------- Lista + Perfil --------
 function renderLista(){
   const ul=$("#listaAlumnos"); ul.innerHTML="";
-  state.alumnos.forEach(a=>{
+  const arr = filteredAlumnos();
+  arr.forEach(a=>{
     const li=document.createElement("li"); li.className="item";
     const img=document.createElement("img"); img.src=a.fotoBase64||""; img.alt="foto";
     const nombre=document.createElement("div"); nombre.className="nombre";
@@ -521,26 +532,29 @@ function reagendarSiAplica(id){
   $("#tab-calendario").classList.remove("oculto");
 }
 
-// -------- Config: voces --------
+// -------- Config: voces + orden --------
 function renderConfig(){
   $("#cfgPin").value = state.config.pinAdmin || "1234";
+  $("#cfgOrden").value = state.config.orden || "asc";
   renderVoces();
   renderVocesList();
 }
 function renderVoces(){
   const sel=$("#cfgVoz"); if(!sel) return;
   sel.innerHTML="";
-  (state.voces||[]).filter(v=>(v.lang||"").toLowerCase().startsWith("es")).forEach(v=>{
+  const vocesES = (state.voces||[]).filter(v=>(v.lang||"").toLowerCase().startsWith("es"));
+  vocesES.sort((a,b)=>collator.compare(a.name, b.name));
+  vocesES.forEach(v=>{
     const o=document.createElement("option"); o.value=v.name; o.textContent=`${v.name} (${v.lang})`; sel.appendChild(o);
   });
-  const monica = (state.voces||[]).find(v=>/monic(a|á)/i.test(v.name||""));
-  if (state.config.voz && (state.voces||[]).some(v=>v.name===state.config.voz)) sel.value = state.config.voz;
+  const monica = vocesES.find(v=>/monic(a|á)/i.test(v.name||""));
+  if (state.config.voz && vocesES.some(v=>v.name===state.config.voz)) sel.value = state.config.voz;
   else if (monica) sel.value = monica.name;
 }
 function renderVocesList(){
   const cont=$("#listaVoces"); if(!cont) return;
   cont.innerHTML = "";
-  const vocesES = (state.voces||[]).filter(v=>(v.lang||"").toLowerCase().startsWith("es"));
+  const vocesES = (state.voces||[]).filter(v=>(v.lang||"").toLowerCase().startsWith("es")).sort((a,b)=>collator.compare(a.name, b.name));
   if (!vocesES.length){ cont.innerHTML = "<div class='hint'>No se detectaron voces en español en este dispositivo.</div>"; return; }
   vocesES.forEach(v=>{
     const card=document.createElement("div");
@@ -567,7 +581,11 @@ function onGuardarConfig(){
   if(!/^\d{4}$/.test(p)){ alert("El PIN debe ser 4 dígitos."); return; }
   state.config.pinAdmin=p;
   state.config.voz=$("#cfgVoz").value || null;
-  save(); alert("Configuración guardada.");
+  state.config.orden=$("#cfgOrden").value || "asc";
+  save();
+  poblarSelectAlumnos($("#selAlumnoCalendario"));
+  renderLista();
+  alert("Configuración guardada.");
 }
 function onExportar(){
   const data=JSON.stringify({alumnos:state.alumnos, config:state.config}, null, 2);
@@ -582,7 +600,7 @@ function onImportarArchivo(e){
     try{
       const data=JSON.parse(fr.result);
       state.alumnos=data.alumnos||[];
-      state.config=Object.assign({pinAdmin:"1234", voz:null}, data.config||{});
+      state.config=Object.assign({pinAdmin:"1234", voz:null, orden:"asc"}, data.config||{});
       save(); renderLista(); renderConfig(); poblarSelectAlumnos($("#selAlumnoCalendario"));
       alert("Respaldo importado.");
     }catch(err){ alert("Archivo inválido."); }
