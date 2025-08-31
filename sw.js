@@ -1,4 +1,4 @@
-// sw.js - Service Worker para PWA Academia NH (v7)
+// sw.js - Service Worker para PWA Academia NH (v10)
 const CACHE_NAME = "academia-nh-cache-v1";
 const ASSETS = [
   "./",

@@ -70,13 +70,14 @@
         <form id="formAlumno">
           <div class="grid-2">
             <label>Nombre completo
-              <input type="text" id="alNombre" required />
+              <input type="text" id="alNombre" required autocomplete="name" />
             </label>
             <label>Código (4 dígitos)
-              <input type="tel" id="alCodigo" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" required />
+              <input type="text" id="alCodigo" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" required
+                     autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" />
             </label>
             <label>Teléfono
-              <input type="tel" id="alTelefono" inputmode="tel" />
+              <input type="tel" id="alTelefono" inputmode="tel" autocomplete="tel" />
             </label>
             <label>Edad
               <input type="number" id="alEdad" min="1" max="120" />
@@ -148,7 +149,8 @@
         <h3>Configuración</h3>
         <div class="grid-2">
           <label>PIN de Administrador (4 dígitos)
-            <input type="tel" id="cfgPin" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" />
+            <input type="text" id="cfgPin" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4"
+                   autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </label>
           <label>Voz (español) para anuncios
             <select id="cfgVoz"></select>

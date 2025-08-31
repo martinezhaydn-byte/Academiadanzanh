@@ -1,7 +1,11 @@
-/* App Academia NH v7 (PWA)
-  - Búsqueda por nombre o código en Lista (acento-insensible).
-  - Orden configurable A→Z o Z→A desde Configuración. Aplica a Lista y selector de Calendario.
-  - Mantiene: mes en cola y promoción automática, limpieza 8s en denegado, prueba/selección de voces, etc.
+/* App Academia NH v10 (PWA consolidada)
+  - Códigos/PIN saneados: solo 4 dígitos [0-9], sin espacios/caracteres raros.
+  - Lista con búsqueda y orden (A→Z / Z→A), scroll + perfil toggle.
+  - Calendario mensual no acumulable; aviso fin de mes; reagenda con 1 clase.
+  - Mes en cola y promoción automática al agotar mes actual.
+  - Modo Alumno con voz (Mónica si está), acceso otorgado/denegado y limpieza 8s.
+  - Compresión de foto de perfil a ~300px (JPEG) al subir (Android/iPad friendly).
+  - PWA: offline, instalar, notificaciones.
 */
 const $ = (q,ctx=document)=>ctx.querySelector(q);
 const $$ = (q,ctx=document)=>Array.from(ctx.querySelectorAll(q));
@@ -24,16 +28,45 @@ function load(){
       const data = JSON.parse(raw);
       state.alumnos = data.alumnos||[];
       state.config = Object.assign({pinAdmin:"1234", voz:null, orden:"asc"}, data.config||{});
+      // saneo de códigos preexistentes
+      state.alumnos.forEach(a=> a.codigo = sanitizeCode(a.codigo));
+      state.config.pinAdmin = sanitizeCode(state.config.pinAdmin);
     }catch(e){console.warn(e);}
   }
 }
+
 function uid(){ return "a"+Math.random().toString(36).slice(2,9); }
 function fmtDate(d){ return d.toISOString().slice(0,10); }
 function monthKeyFromInput(v){ return v || new Date().toISOString().slice(0,7); }
 function today(){ const d=new Date(); d.setHours(0,0,0,0); return d; }
-function norm(s){ return (s||"").toString().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim(); }
+function norm(s){ return (s||"").toString().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim(); }
+function sanitizeCode(s){ return (s||"").toString().normalize("NFKC").replace(/\D+/g,"").slice(0,4); }
 
-// ---- Gestión de meses ----
+// ---- Foto: compresión a ~300 px ----
+function compressFileToBase64(file, maxSize=300, quality=0.72){
+  return new Promise((resolve,reject)=>{
+    const fr = new FileReader();
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > h){ if (w > maxSize){ h = Math.round(h*maxSize/w); w = maxSize; } }
+        else { if (h > maxSize){ w = Math.round(w*maxSize/h); h = maxSize; } }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = fr.result;
+    };
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
+}
+
+// ---- Meses ----
 function sortKeysAsc(keys){ return keys.sort(); }
 function getActiveAndNextMonth(alumno){
   const keys = Object.keys(alumno.calendario||{});
@@ -69,9 +102,8 @@ function speak(text, voiceName=null){
   if (!("speechSynthesis" in window)) return;
   const u = new SpeechSynthesisUtterance(text);
   let voz = null;
-  if (voiceName){
-    voz = state.voces.find(v=>v.name===voiceName) || null;
-  } else {
+  if (voiceName){ voz = state.voces.find(v=>v.name===voiceName) || null; }
+  else {
     const monica = state.voces.find(v=>/monic(a|á)/i.test(v.name||"")) || null;
     const vozId = state.config.voz;
     if (monica) voz = monica;
@@ -147,6 +179,10 @@ function init(){
   $("#btnNuevoAlumno").addEventListener("click", limpiarForm);
   $("#formAlumno").addEventListener("submit", onGuardarAlumno);
   $("#alFoto").addEventListener("change", onFotoSelect);
+  $("#alCodigo").addEventListener("input", (e)=>{
+    const cleaned = sanitizeCode(e.target.value);
+    if (e.target.value !== cleaned) e.target.value = cleaned;
+  });
 
   // Calendario
   $("#btnGuardarCalendario").addEventListener("click", guardarCalendario);
@@ -166,6 +202,10 @@ function init(){
   $("#btnExportar").addEventListener("click", onExportar);
   $("#btnImportar").addEventListener("click", ()=>$("#fileImportar").click());
   $("#fileImportar").addEventListener("change", onImportarArchivo);
+  $("#cfgPin").addEventListener("input", (e)=>{
+    const cleaned = sanitizeCode(e.target.value);
+    if (e.target.value !== cleaned) e.target.value = cleaned;
+  });
 
   // Voces
   if ("speechSynthesis" in window){
@@ -301,26 +341,32 @@ function onEntrarAlumno(){
 
 // -------- Registro --------
 function limpiarForm(){ $("#formAlumno").reset(); $("#formAlumno").dataset.editId=""; $("#formAlumno").dataset.fotoBase64=""; }
-function onFotoSelect(e){
-  const f = e.target.files?.[0]; if (!f) return;
-  const r = new FileReader();
-  r.onload = ()=>{ $("#formAlumno").dataset.fotoBase64 = r.result; };
-  r.readAsDataURL(f);
+async function onFotoSelect(e){
+  const f = e.target.files?.[0]; if(!f) return;
+  try{
+    const base64 = await compressFileToBase64(f, 300, 0.72);
+    $("#formAlumno").dataset.fotoBase64 = base64;
+  }catch(err){
+    console.warn("Error al comprimir foto:", err);
+  }
 }
 function onGuardarAlumno(e){
   e.preventDefault();
   const f = $("#formAlumno");
   const data = {
     nombre: $("#alNombre").value.trim(),
-    codigo: $("#alCodigo").value.trim(),
+    codigo: sanitizeCode($("#alCodigo").value),
     telefono: $("#alTelefono").value.trim(),
     edad: parseInt($("#alEdad").value||"0",10)||null,
     fechaNac: $("#alFechaNac").value||null,
     fotoBase64: f.dataset.fotoBase64 || null
   };
-  if (!/^\d{4}$/.test(data.codigo)){ alert("El código debe ser de 4 dígitos."); return; }
+  if (!/^\d{4}$/.test(data.codigo)){ alert("El código debe ser exactamente 4 dígitos."); return; }
 
   if (f.dataset.editId){
+    // Si edita y cambia a un código ya tomado por otro alumno, impedir
+    const taken = state.alumnos.some(a=> a.codigo===data.codigo && a.id!==f.dataset.editId);
+    if (taken){ alert("Ese código ya existe."); return; }
     const idx = state.alumnos.findIndex(a=>a.id===f.dataset.editId);
     if (idx>=0) state.alumnos[idx] = Object.assign({}, state.alumnos[idx], data);
   } else {
@@ -331,7 +377,7 @@ function onGuardarAlumno(e){
   alert("Alumno guardado.");
 }
 
-// ---- Helpers de orden y filtro ----
+// ---- Orden y filtro ----
 function orderedAlumnos(){
   const arr = state.alumnos.slice().sort((a,b)=>collator.compare(a.nombre||"", b.nombre||""));
   return (state.config.orden==="desc") ? arr.reverse() : arr;
@@ -577,7 +623,7 @@ function renderVocesList(){
   });
 }
 function onGuardarConfig(){
-  const p=$("#cfgPin").value.trim();
+  const p=sanitizeCode($("#cfgPin").value);
   if(!/^\d{4}$/.test(p)){ alert("El PIN debe ser 4 dígitos."); return; }
   state.config.pinAdmin=p;
   state.config.voz=$("#cfgVoz").value || null;
@@ -599,8 +645,9 @@ function onImportarArchivo(e){
   fr.onload=()=>{
     try{
       const data=JSON.parse(fr.result);
-      state.alumnos=data.alumnos||[];
+      state.alumnos=(data.alumnos||[]).map(a=>({ ...a, codigo: sanitizeCode(a.codigo) }));
       state.config=Object.assign({pinAdmin:"1234", voz:null, orden:"asc"}, data.config||{});
+      state.config.pinAdmin = sanitizeCode(state.config.pinAdmin);
       save(); renderLista(); renderConfig(); poblarSelectAlumnos($("#selAlumnoCalendario"));
       alert("Respaldo importado.");
     }catch(err){ alert("Archivo inválido."); }
