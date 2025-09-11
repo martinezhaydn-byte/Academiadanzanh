@@ -19,7 +19,6 @@
   </header>
 
   <main id="contenedor">
-    <!-- Vista de acceso alumno -->
     <section id="vistaAlumno" class="vista activa">
       <h2>Entrada de Alumno</h2>
       <div class="panel panel-alumno">
@@ -41,7 +40,6 @@
       <div id="resultadoAlumno" class="resultado oculto"></div>
     </section>
 
-    <!-- Vista de acceso admin -->
     <section id="vistaAdminLogin" class="vista">
       <h2>Acceso Administrador</h2>
       <div class="panel panel-admin">
@@ -55,7 +53,6 @@
       <p class="hint">PIN por defecto: <strong>1234</strong> (cámbialo en Configuración).</p>
     </section>
 
-    <!-- Vista admin principal -->
     <section id="vistaAdmin" class="vista">
       <h2>Panel Administrador</h2>
       <div class="tabs">
@@ -97,36 +94,18 @@
       </div>
 
       <div class="tab-content oculto" id="tab-calendario">
-        <h3>Calendario y Paquete de Clases</h3>
+        <h3>Calendario y Paquete de Clases (multi‑mes)</h3>
         <div class="grid-3">
           <label>Alumno
             <select id="selAlumnoCalendario"></select>
           </label>
-          <label>Paquete del mes
-            <select id="selPaquete">
-              <option value="1">Clase suelta (1)</option>
-              <option value="2">2 clases</option>
-              <option value="3">3 clases</option>
-              <option value="4">4 clases</option>
-              <option value="5">5 clases</option>
-              <option value="6">6 clases</option>
-              <option value="7">7 clases</option>
-              <option value="8">8 clases</option>
-              <option value="9">9 clases</option>
-              <option value="10">10 clases</option>
-              <option value="11">11 clases</option>
-              <option value="12">12 clases</option>
-            </select>
-          </label>
-          <label>Mes de la asignación
-            <input type="month" id="mesAsignacion">
-          </label>
         </div>
-        <p class="hint">Selecciona exactamente tantos días como el paquete. Las clases no se acumulan.</p>
-        <div id="calendario"></div>
+        <p class="hint">Selecciona días de varios meses en una sola acción. Usa “Añadir mes”.</p>
+        <div id="multiMes"></div>
         <div class="acciones">
+          <button id="btnAgregarMes" class="ghost">Añadir mes</button>
           <button id="btnGuardarCalendario" class="primary">Guardar calendario</button>
-          <button id="btnLimpiarCalendario" class="ghost">Limpiar selección</button>
+          <button id="btnLimpiarCalendario" class="ghost">Quitar todos los meses</button>
         </div>
       </div>
 

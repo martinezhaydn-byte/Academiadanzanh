@@ -47,9 +47,13 @@ label{display:flex;flex-direction:column;gap:6px}
 .item .nombre{display:flex;align-items:center;gap:8px}
 .sticky{position:sticky;bottom:0;background:#111318;border:1px solid #222;border-radius:12px;margin-top:12px;padding:12px}
 .oculto{display:none}
-#calendario{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin:12px 0}
+/* Multi-mes */
+.mes-block{border:1px solid #222;background:#0f1116;border-radius:12px;padding:12px;margin:12px 0}
+.mes-head{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;align-items:end}
+.mes-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:10px}
 .dia{padding:8px;border-radius:10px;text-align:center;border:1px solid #2a2e35;background:#10131a;cursor:pointer}
 .dia.activo{outline:2px solid var(--accent);background:#0a1a1d}
+.mes-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
 .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#19202b;border:1px solid #2a2e35;color:#a7c7ff;margin-left:6px;font-size:12px}
 footer{padding:20px;color:#7b8490;text-align:center}
 .okbox{display:flex;align-items:center;gap:12px}
@@ -59,6 +63,3 @@ footer{padding:20px;color:#7b8490;text-align:center}
 .voicecard .acciones{margin-top:8px}
 .section{border:1px solid #222;border-radius:12px;padding:10px;background:#0f1116;margin-top:10px}
 .section h5{margin:0 0 6px 0}
-@media (hover:hover){
-  .dia:hover{background:#0d121a}
-}
