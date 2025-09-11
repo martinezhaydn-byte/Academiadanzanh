@@ -1,5 +1,5 @@
-// sw.js - cache PWA v13
-const CACHE_NAME="academia-nh-cache-v13";
+// sw.js - cache PWA v15
+const CACHE_NAME="academia-nh-cache-v15";
 const ASSETS=["./","./index.html","./style.css","./app.js","./manifest.webmanifest","./icons/icon-192.png","./icons/icon-512.png"];
 self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS)));self.skipWaiting();});
 self.addEventListener("activate",e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE_NAME).map(k=>caches.delete(k)))));self.clients.claim();});

@@ -1,4 +1,4 @@
-/* v13 completa: multi‑mes, perfil con meses futuros, reagendar multi‑mes, voces, PWA */
+/* v15: Aviso al quedar 1 clase + editar/eliminar meses desde Perfil */
 const $ = (q,ctx=document)=>ctx.querySelector(q);
 const $$ = (q,ctx=document)=>Array.from(ctx.querySelectorAll(q));
 const collator = new Intl.Collator('es', {sensitivity:'base', numeric:false});
@@ -37,7 +37,6 @@ function speak(text){
   speechSynthesis.speak(u);
 }
 
-// PWA install
 let deferredPrompt=null;
 if ("serviceWorker" in navigator){ window.addEventListener("load", ()=>{ navigator.serviceWorker.register("sw.js"); }); }
 window.addEventListener("beforeinstallprompt", (e)=>{ e.preventDefault(); deferredPrompt=e; $("#btnInstalar").classList.remove("oculto"); });
@@ -111,6 +110,12 @@ function onKey(tipo, key){ const cur=getPinDisplay(tipo); if(key==="⌫") setPin
 function getPinDisplay(tipo){ const el=(tipo==="alumno")?$("#pinAlumno"):$("#pinAdmin"); return el.dataset.val||""; }
 function setPinDisplay(tipo, val){ const el=(tipo==="alumno")?$("#pinAlumno"):$("#pinAdmin"); el.dataset.val=val; el.textContent=(val+"____").slice(0,4).split("").join(""); }
 
+function toast(msg){
+  const t=document.createElement("div"); t.className="toast"; t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(()=>{ t.remove(); }, 3500);
+}
+
 function onEntrarAdmin(){ const pin=getPinDisplay("admin"); if(pin===state.config.pinAdmin){ mostrarVista("admin"); setPinDisplay("admin",""); } else alert("PIN incorrecto"); }
 function onEntrarAlumno(){
   const pin=getPinDisplay("alumno"); const res=$("#resultadoAlumno"); res.classList.remove("oculto","ok","err");
@@ -125,7 +130,9 @@ function onEntrarAlumno(){
   cal.usados=cal.usados||[]; cal.usados.push(hoyStr);
   const restantes=remaining(cal);
   res.innerHTML=`<div class="okbox">${alumno.fotoBase64?`<img src="${alumno.fotoBase64}" alt="foto"/>`:""}<div><strong>${alumno.nombre}</strong><br/>Clases disponibles este mes: <span class="badge">${restantes}</span></div></div>`;
-  res.classList.add("ok"); speak("Acceso otorgado"); save(); clear();
+  res.classList.add("ok"); speak("Acceso otorgado"); save();
+  if (restantes===1){ toast(`⚠️ ${alumno.nombre} está en su última clase. Reagenda.`); }
+  clear();
 }
 
 // ---------- Registro ----------
@@ -231,6 +238,14 @@ function mostrarPerfil(id){
     return `<li>${d} ${usado?"<span class='badge'>usado</span>":""}</li>`;
   }).join("") : "<li>Sin calendario activo.</li>";
 
+  // Botones editar/eliminar para mes activo
+  const accionesAct = activoKey && calAct ? `
+    <div class="acciones" style="margin-top:8px">
+      <button class="ghost" data-edit="${activoKey}">Editar mes</button>
+      <button class="btnDelMes" data-del="${activoKey}" style="background:var(--danger)">Eliminar mes</button>
+      <button class="primary" id="btnReagendar">Reagendar (multi‑mes)</button>
+    </div>` : "";
+
   const otherKeys = keys.filter(k=>k!==activoKey);
   let proximosHtml = "";
   if (otherKeys.length){
@@ -240,6 +255,10 @@ function mostrarPerfil(id){
       return `<div class="section">
         <h5>Próximo mes: <span class="badge">${k}</span> · Clases totales: <span class="badge">${c?.dias?.length||0}</span></h5>
         <details style="margin-top:6px"><summary>Ver días</summary><ul>${dias}</ul></details>
+        <div class="acciones" style="margin-top:8px">
+          <button class="ghost" data-edit="${k}">Editar mes</button>
+          <button class="btnDelMes" data-del="${k}" style="background:var(--danger)">Eliminar mes</button>
+        </div>
       </div>`;
     }).join("");
   }
@@ -253,14 +272,41 @@ function mostrarPerfil(id){
       <h5>Mes activo: <span class="badge">${activoKey || "—"}</span></h5>
       <div>Clases restantes: <span class="badge">${restantesAct}</span></div>
       <details style="margin-top:6px"><summary>Días asignados</summary><ul>${diasHtmlAct}</ul></details>
-      <div class="acciones" style="margin-top:8px">
-        <button class="primary" id="btnReagendar">Reagendar (multi‑mes)</button>
-      </div>
+      ${accionesAct}
     </div>
     ${proximosHtml || "<div class='hint'>No hay meses futuros cargados.</div>"}
   `;
-  $("#btnReagendar").addEventListener("click", ()=>reagendarMultiMes(a.id, calAct?.dias?.length||4));
+
+  // wire: reagendar, editar, eliminar
+  if ($("#btnReagendar")) $("#btnReagendar").addEventListener("click", ()=>reagendarMultiMes(a.id, calAct?.dias?.length||4));
+  $$("#perfilContenido [data-edit]").forEach(btn=> btn.addEventListener("click", ()=>editarMes(a.id, btn.getAttribute("data-edit"))));
+  $$("#perfilContenido [data-del]").forEach(btn=> btn.addEventListener("click", ()=>eliminarMes(a.id, btn.getAttribute("data-del"))));
+
   $("#panelPerfil").classList.remove("oculto");
+}
+
+function editarMes(alumnoId, mk){
+  const a=state.alumnos.find(x=>x.id===alumnoId); if(!a) return;
+  const cal=a.calendario?.[mk]; if(!cal){ alert("No hay calendario para ese mes."); return; }
+  // abrir pestaña calendario con bloque precargado y días marcados
+  $$(".tabs .tab").forEach(b=>b.classList.remove("activo"));
+  $$(`.tabs .tab[data-tab="calendario"]`)[0].classList.add("activo");
+  $$(".tab-content").forEach(t=>t.classList.add("oculto")); $("#tab-calendario").classList.remove("oculto");
+  $("#selAlumnoCalendario").value=a.id;
+  $("#multiMes").innerHTML="";
+  addMesBlock(mk, cal.dias.length, cal.dias.slice()); // preselecciona días
+  window.scrollTo({top: $("#tab-calendario").offsetTop - 20, behavior:"smooth"});
+}
+
+function eliminarMes(alumnoId, mk){
+  const a=state.alumnos.find(x=>x.id===alumnoId); if(!a) return;
+  if(!confirm(`¿Eliminar el mes ${mk} para ${a.nombre}?`)) return;
+  if (a.calendario && a.calendario[mk]){
+    delete a.calendario[mk];
+    save();
+    if (state.uiPerfilOpenId===alumnoId) mostrarPerfil(alumnoId);
+    toast(`Mes ${mk} eliminado.`);
+  }
 }
 
 // ---------- Config ----------
@@ -308,7 +354,7 @@ function poblarSelectAlumnos(sel){
 }
 function orderedAlumnos(){ const arr=state.alumnos.slice().sort((a,b)=>collator.compare(a.nombre||"", b.nombre||"")); return (state.config.orden==="desc")?arr.reverse():arr; }
 
-function addMesBlock(defaultMonth=null, defaultPack=4){
+function addMesBlock(defaultMonth=null, defaultPack=4, defaultDays=null){
   const wrap=document.createElement("div"); wrap.className="mes-block";
   const mk = defaultMonth || new Date().toISOString().slice(0,7);
   wrap.innerHTML = `
@@ -329,7 +375,6 @@ function addMesBlock(defaultMonth=null, defaultPack=4){
   $("#multiMes").appendChild(wrap);
   const mesInput = $(".mesInput", wrap);
   const packInput = $(".packInput", wrap);
-  packInput.value = String(defaultPack);
   const grid = $(".mes-grid", wrap);
 
   function renderGrid(){
@@ -348,18 +393,31 @@ function addMesBlock(defaultMonth=null, defaultPack=4){
       el.addEventListener("click", ()=>{ el.classList.toggle("activo"); enforcePack(); });
       grid.appendChild(el);
     }
+    // Preseleccionar días si se pasó defaultDays
+    if (Array.isArray(defaultDays) && defaultDays.length){
+      defaultDays.forEach(fd=>{
+        const btn = $$(`.dia`, grid).find(b=>b.dataset.full===fd);
+        if(btn) btn.classList.add("activo");
+      });
+    }
+    enforcePack();
   }
   function enforcePack(){
     const pack = parseInt(packInput.value,10);
     const activos = $$(".dia.activo", grid).filter(el=>el.dataset.full);
-    while (activos.length > pack){
-      activos.pop().classList.remove("activo");
+    if (Array.isArray(defaultDays) && defaultDays.length){
+      packInput.value = String(defaultDays.length);
+    } else {
+      while (activos.length > pack){
+        activos.pop().classList.remove("activo");
+      }
     }
   }
 
   mesInput.addEventListener("change", renderGrid);
   packInput.addEventListener("change", enforcePack);
   $(".btnQuitar", wrap).addEventListener("click", ()=>wrap.remove());
+  packInput.value = String(defaultDays?.length || defaultPack);
   renderGrid();
   return wrap;
 }
@@ -383,7 +441,7 @@ function guardarCalendarioMulti(){
   try{ data = collectMesBlocks(); } catch(err){ alert(err.message); return; }
   const al = state.alumnos.find(a=>a.id===selId);
   al.calendario = al.calendario || {};
-  data.forEach(({mk, dias})=>{ al.calendario[mk] = { dias, usados: [] }; });
+  data.forEach(({mk, dias})=>{ al.calendario[mk] = { dias, usados: (al.calendario[mk]?.usados||[]).filter(u=>dias.includes(u)) }; });
   save();
   alert("Calendario guardado en los meses seleccionados.");
 }

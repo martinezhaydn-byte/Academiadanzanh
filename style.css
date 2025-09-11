@@ -42,7 +42,7 @@ input,select{width:100%;padding:12px;border-radius:10px;border:1px solid #2a2e35
 label{display:flex;flex-direction:column;gap:6px}
 .lista-contenedor{max-height:380px;overflow:auto;border:1px solid #222;border-radius:12px;background:#0f1116}
 .lista{list-style:none;margin:0;padding:0}
-.item{display:grid;grid-template-columns:1fr 120px 56px 56px 80px;gap:8px;align-items:center;padding:10px;border-bottom:1px solid #1f2229}
+.item{display:grid;grid-template-columns:1fr 120px 56px 56px 120px;gap:8px;align-items:center;padding:10px;border-bottom:1px solid #1f2229}
 .item img{width:36px;height:36px;border-radius:50%;object-fit:cover}
 .item .nombre{display:flex;align-items:center;gap:8px}
 .sticky{position:sticky;bottom:0;background:#111318;border:1px solid #222;border-radius:12px;margin-top:12px;padding:12px}
@@ -63,3 +63,4 @@ footer{padding:20px;color:#7b8490;text-align:center}
 .voicecard .acciones{margin-top:8px}
 .section{border:1px solid #222;border-radius:12px;padding:10px;background:#0f1116;margin-top:10px}
 .section h5{margin:0 0 6px 0}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:#1e232b;color:#e6f1ff;border:1px solid #2a3340;padding:10px 14px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.4);z-index:9999}
