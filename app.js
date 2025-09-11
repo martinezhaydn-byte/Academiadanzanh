@@ -1,4 +1,4 @@
-/* v12: Reagendar abre Calendario multi‑mes con el siguiente mes precargado */
+/* v13 completa: multi‑mes, perfil con meses futuros, reagendar multi‑mes, voces, PWA */
 const $ = (q,ctx=document)=>ctx.querySelector(q);
 const $$ = (q,ctx=document)=>Array.from(ctx.querySelectorAll(q));
 const collator = new Intl.Collator('es', {sensitivity:'base', numeric:false});
@@ -23,8 +23,21 @@ function fmtDate(d){ return d.toISOString().slice(0,10); }
 function sanitizeCode(s){ return (s||"").toString().normalize("NFKC").replace(/\D+/g,"").slice(0,4); }
 function norm(s){ return (s||"").toString().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim(); }
 function today(){ const d=new Date(); d.setHours(0,0,0,0); return d; }
+function remaining(cal){ return (cal?.dias||[]).filter(d=>!(cal.usados||[]).includes(d)).length; }
 
-// --- Básicos de UI / SW ---
+function speak(text){
+  if(!("speechSynthesis" in window)) return;
+  const u=new SpeechSynthesisUtterance(text);
+  const vs=speechSynthesis.getVoices();
+  const prefer=state.config.voz ? vs.find(v=>v.name===state.config.voz) : null;
+  const monica=vs.find(v=>/monic(a|á)/i.test(v.name||""));
+  const es=vs.find(v=>(v.lang||"").toLowerCase().startsWith("es"));
+  u.voice = prefer || monica || es || null;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+
+// PWA install
 let deferredPrompt=null;
 if ("serviceWorker" in navigator){ window.addEventListener("load", ()=>{ navigator.serviceWorker.register("sw.js"); }); }
 window.addEventListener("beforeinstallprompt", (e)=>{ e.preventDefault(); deferredPrompt=e; $("#btnInstalar").classList.remove("oculto"); });
@@ -79,6 +92,7 @@ function init(){
   mostrarVista("alumno");
 }
 
+// ---------- Keypad / Accesos ----------
 function mostrarVista(which){
   $$(".vista").forEach(v=>v.classList.remove("activa"));
   if (which==="alumno") $("#vistaAlumno").classList.add("activa");
@@ -102,19 +116,19 @@ function onEntrarAlumno(){
   const pin=getPinDisplay("alumno"); const res=$("#resultadoAlumno"); res.classList.remove("oculto","ok","err");
   const alumno=state.alumnos.find(a=>a.codigo===pin); const preview=$("#previewFotoAlumno");
   const clear=()=>setTimeout(()=>{ res.classList.add("oculto"); setPinDisplay("alumno",""); if(preview) preview.src=""; },8000);
-  if(!alumno){ res.textContent="Acceso denegado: código no encontrado."; res.classList.add("err"); return clear(); }
+  if(!alumno){ speak("Acceso denegado"); res.textContent="Acceso denegado: código no encontrado."; res.classList.add("err"); return clear(); }
   preview.src=alumno.fotoBase64||"";
   const mk=new Date().toISOString().slice(0,7); const cal=alumno.calendario?.[mk];
-  if(!cal){ res.textContent="Acceso denegado: no tiene calendario asignado este mes."; res.classList.add("err"); return clear(); }
+  if(!cal){ speak("Acceso denegado"); res.textContent="Acceso denegado: no tiene calendario asignado este mes."; res.classList.add("err"); return clear(); }
   const hoyStr=fmtDate(today()); const puedeHoy=(cal.dias||[]).includes(hoyStr) && !(cal.usados||[]).includes(hoyStr);
-  if(!puedeHoy){ res.textContent="Acceso denegado: hoy no está en sus días permitidos o ya fue usado."; res.classList.add("err"); return clear(); }
+  if(!puedeHoy){ speak("Acceso denegado"); res.textContent="Acceso denegado: hoy no está en sus días permitidos o ya fue usado."; res.classList.add("err"); return clear(); }
   cal.usados=cal.usados||[]; cal.usados.push(hoyStr);
-  const restantes=(cal.dias||[]).filter(d=>!(cal.usados||[]).includes(d)).length;
+  const restantes=remaining(cal);
   res.innerHTML=`<div class="okbox">${alumno.fotoBase64?`<img src="${alumno.fotoBase64}" alt="foto"/>`:""}<div><strong>${alumno.nombre}</strong><br/>Clases disponibles este mes: <span class="badge">${restantes}</span></div></div>`;
-  res.classList.add("ok"); save(); clear();
+  res.classList.add("ok"); speak("Acceso otorgado"); save(); clear();
 }
 
-// ---- Registro ----
+// ---------- Registro ----------
 function limpiarForm(){ $("#formAlumno").reset(); $("#formAlumno").dataset.editId=""; $("#formAlumno").dataset.fotoBase64=""; }
 async function onFotoSelect(e){
   const f=e.target.files?.[0]; if(!f) return;
@@ -166,7 +180,7 @@ function onGuardarAlumno(e){
   alert("Alumno guardado.");
 }
 
-// ---- Lista / Perfil ----
+// ---------- Lista & Perfil ----------
 function orderedAlumnos(){ const arr=state.alumnos.slice().sort((a,b)=>collator.compare(a.nombre||"", b.nombre||"")); return (state.config.orden==="desc")?arr.reverse():arr; }
 function filteredAlumnos(){ const f=norm(state.filtro); if(!f) return orderedAlumnos(); return orderedAlumnos().filter(a=>norm(a.nombre).includes(f)||norm(a.codigo).includes(f)); }
 function renderLista(){
@@ -201,24 +215,55 @@ function borrarAlumno(id){
 }
 function togglePerfil(id){ if(state.uiPerfilOpenId===id){ ocultarPerfil(); } else { state.uiPerfilOpenId=id; mostrarPerfil(id); } }
 function ocultarPerfil(){ state.uiPerfilOpenId=""; $("#panelPerfil").classList.add("oculto"); $("#perfilContenido").innerHTML="Selecciona un alumno para ver su perfil."; }
+
 function mostrarPerfil(id){
   const a=state.alumnos.find(x=>x.id===id); if(!a) return;
-  const keys=Object.keys(a.calendario||{}).sort();
-  const activo=keys[0]||"—";
-  const cal=a.calendario?.[activo];
-  const restantes=cal?cal.dias.filter(d=>!(cal.usados||[]).includes(d)).length:0;
-  const diasHtml=cal?cal.dias.map(d=>`<li>${d}${(cal.usados||[]).includes(d)?" <span class='badge'>usado</span>":""}</li>`).join(""):"<li>Sin calendario activo.</li>";
-  $("#perfilContenido").innerHTML=`<div><strong>${a.nombre}</strong> · Código ${a.codigo}</div>
-    <div class="section"><h5>Mes activo: <span class="badge">${activo}</span></h5>
-    <div>Clases restantes: <span class="badge">${restantes}</span></div>
-    <details style="margin-top:6px"><summary>Días asignados</summary><ul>${diasHtml}</ul></details>
-    <div class="acciones" style="margin-top:8px"><button class="primary" id="btnReagendar">Reagendar (multi‑mes)</button></div>
-    </div>`;
-  $("#btnReagendar").addEventListener("click", ()=>reagendarMultiMes(a.id));
+  const keys = Object.keys(a.calendario||{}).sort();
+  let activoKey = null;
+  for (const k of keys){
+    if (remaining(a.calendario[k])>0){ activoKey = k; break; }
+  }
+  if (!activoKey) activoKey = keys[0] || "—";
+  const calAct = a.calendario?.[activoKey];
+  const restantesAct = remaining(calAct);
+  const diasHtmlAct = calAct ? calAct.dias.map(d=>{
+    const usado = (calAct.usados||[]).includes(d);
+    return `<li>${d} ${usado?"<span class='badge'>usado</span>":""}</li>`;
+  }).join("") : "<li>Sin calendario activo.</li>";
+
+  const otherKeys = keys.filter(k=>k!==activoKey);
+  let proximosHtml = "";
+  if (otherKeys.length){
+    proximosHtml = otherKeys.map(k=>{
+      const c = a.calendario[k];
+      const dias = (c?.dias||[]).map(d=>`<li>${d}</li>`).join("");
+      return `<div class="section">
+        <h5>Próximo mes: <span class="badge">${k}</span> · Clases totales: <span class="badge">${c?.dias?.length||0}</span></h5>
+        <details style="margin-top:6px"><summary>Ver días</summary><ul>${dias}</ul></details>
+      </div>`;
+    }).join("");
+  }
+
+  const foto = a.fotoBase64 ? `<img src="${a.fotoBase64}" alt="foto" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:1px solid #222;margin-right:10px"/>` : "";
+  $("#perfilContenido").innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">${foto}
+      <div><strong>${a.nombre}</strong><br/>Código: ${a.codigo} · Tel: ${a.telefono||"—"}</div>
+    </div>
+    <div class="section">
+      <h5>Mes activo: <span class="badge">${activoKey || "—"}</span></h5>
+      <div>Clases restantes: <span class="badge">${restantesAct}</span></div>
+      <details style="margin-top:6px"><summary>Días asignados</summary><ul>${diasHtmlAct}</ul></details>
+      <div class="acciones" style="margin-top:8px">
+        <button class="primary" id="btnReagendar">Reagendar (multi‑mes)</button>
+      </div>
+    </div>
+    ${proximosHtml || "<div class='hint'>No hay meses futuros cargados.</div>"}
+  `;
+  $("#btnReagendar").addEventListener("click", ()=>reagendarMultiMes(a.id, calAct?.dias?.length||4));
   $("#panelPerfil").classList.remove("oculto");
 }
 
-// ---- Config ----
+// ---------- Config ----------
 function renderConfig(){ $("#cfgPin").value=state.config.pinAdmin||"1234"; $("#cfgOrden").value=state.config.orden||"asc"; renderVocesList(); }
 function renderVocesList(){
   const cont=$("#listaVoces"); if(!cont) return;
@@ -229,7 +274,10 @@ function renderVocesList(){
     const card=document.createElement("div"); card.className="voicecard";
     card.innerHTML=`<div><strong>${v.name}</strong> <span class="badge">${v.lang}</span></div>
     <div class="acciones"><button class="ghost">Probar</button><button class="primary">Seleccionar</button></div>`;
-    card.querySelector(".ghost").addEventListener("click",()=>{ const u=new SpeechSynthesisUtterance("Esta es una prueba de voz para acceso otorgado y acceso denegado en la Academia de Danza N H."); u.voice=v; speechSynthesis.cancel(); speechSynthesis.speak(u); });
+    card.querySelector(".ghost").addEventListener("click",()=>{
+      const u=new SpeechSynthesisUtterance("Esta es una prueba de voz para acceso otorgado y acceso denegado en la Academia de Danza N H.");
+      u.voice=v; speechSynthesis.cancel(); speechSynthesis.speak(u);
+    });
     card.querySelector(".primary").addEventListener("click",()=>{ state.config.voz=v.name; save(); alert("Voz seleccionada: "+v.name); });
     cont.appendChild(card);
   });
@@ -241,11 +289,23 @@ function onGuardarConfig(){
 function onExportar(){ const data=JSON.stringify({alumnos:state.alumnos, config:state.config}, null, 2); const blob=new Blob([data],{type:"application/json"}); const url=URL.createObjectURL(blob); const a=document.createElement("a"); a.href=url; a.download="respaldo_academia_nh.json"; a.click(); URL.revokeObjectURL(url); }
 function onImportarArchivo(e){
   const file=e.target.files?.[0]; if(!file) return;
-  const fr=new FileReader(); fr.onload=()=>{ try{ const data=JSON.parse(fr.result); state.alumnos=(data.alumnos||[]).map(a=>({...a, codigo:sanitizeCode(a.codigo)})); state.config=Object.assign({pinAdmin:"1234", voz:null, orden:"asc"}, data.config||{}); state.config.pinAdmin=sanitizeCode(state.config.pinAdmin); save(); renderLista(); poblarSelectAlumnos($("#selAlumnoCalendario")); alert("Respaldo importado."); }catch(err){ alert("Archivo inválido."); } }; fr.readAsText(file);
+  const fr=new FileReader(); fr.onload=()=>{
+    try{
+      const data=JSON.parse(fr.result);
+      state.alumnos=(data.alumnos||[]).map(a=>({...a, codigo:sanitizeCode(a.codigo)}));
+      state.config=Object.assign({pinAdmin:"1234", voz:null, orden:"asc"}, data.config||{});
+      state.config.pinAdmin=sanitizeCode(state.config.pinAdmin);
+      save(); renderLista(); poblarSelectAlumnos($("#selAlumnoCalendario")); alert("Respaldo importado.");
+    }catch(err){ alert("Archivo inválido."); }
+  };
+  fr.readAsText(file);
 }
 
-// ---- Calendario multi‑mes ----
-function poblarSelectAlumnos(sel){ sel.innerHTML=""; const arr=orderedAlumnos(); arr.forEach(a=>{ const o=document.createElement("option"); o.value=a.id; o.textContent=`${a.nombre} (${a.codigo})`; sel.appendChild(o); }); }
+// ---------- Calendario multi‑mes ----------
+function poblarSelectAlumnos(sel){
+  sel.innerHTML=""; const arr=orderedAlumnos();
+  arr.forEach(a=>{ const o=document.createElement("option"); o.value=a.id; o.textContent=`${a.nombre} (${a.codigo})`; sel.appendChild(o); });
+}
 function orderedAlumnos(){ const arr=state.alumnos.slice().sort((a,b)=>collator.compare(a.nombre||"", b.nombre||"")); return (state.config.orden==="desc")?arr.reverse():arr; }
 
 function addMesBlock(defaultMonth=null, defaultPack=4){
@@ -324,34 +384,22 @@ function guardarCalendarioMulti(){
   const al = state.alumnos.find(a=>a.id===selId);
   al.calendario = al.calendario || {};
   data.forEach(({mk, dias})=>{ al.calendario[mk] = { dias, usados: [] }; });
-  save(); alert("Calendario guardado en los meses seleccionados.");
+  save();
+  alert("Calendario guardado en los meses seleccionados.");
 }
 
-function nextMonthKey(mk){
-  const [y,m]=mk.split("-").map(n=>parseInt(n,10)); const d=new Date(y, m-1, 1); d.setMonth(d.getMonth()+1); return d.toISOString().slice(0,7);
-}
-
-// ---- NUEVO: Reagendar multi‑mes ----
-function reagendarMultiMes(alumnoId){
+// ---- Reagendar multi‑mes ----
+function nextMonthKey(mk){ const [y,m]=mk.split("-").map(n=>parseInt(n,10)); const d=new Date(y, m-1, 1); d.setMonth(d.getMonth()+1); return d.toISOString().slice(0,7); }
+function reagendarMultiMes(alumnoId, paquete=4){
   const a=state.alumnos.find(x=>x.id===alumnoId); if(!a) return;
-  // Detecta paquete del mes activo
   const keys=Object.keys(a.calendario||{}).sort();
-  const activo=keys[0]; const cal=a.calendario?.[activo];
-  const paquete = cal ? (cal.dias?.length || 4) : 4;
-
-  // Abre Calendario con el alumno preseleccionado y bloques listos
+  const activo=keys[0]||new Date().toISOString().slice(0,7);
+  const mkSig = nextMonthKey(activo);
   $$(".tabs .tab").forEach(b=>b.classList.remove("activo"));
   $$(`.tabs .tab[data-tab="calendario"]`)[0].classList.add("activo");
   $$(".tab-content").forEach(t=>t.classList.add("oculto")); $("#tab-calendario").classList.remove("oculto");
-
   $("#selAlumnoCalendario").value = a.id;
-  const cont = $("#multiMes"); cont.innerHTML = "";
-
-  // Siguiente mes por defecto
-  const mkActual = activo || new Date().toISOString().slice(0,7);
-  const mkSig = nextMonthKey(mkActual);
-  const block1 = addMesBlock(mkSig, paquete);
-
-  // Deja disponible "Añadir mes" por si quieres programar 2 o más meses
+  $("#multiMes").innerHTML = "";
+  addMesBlock(mkSig, paquete);
   window.scrollTo({top: $("#tab-calendario").offsetTop - 20, behavior: "smooth"});
 }
