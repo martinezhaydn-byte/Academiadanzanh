@@ -10,7 +10,7 @@ nav{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
 button{font-size:16px;border:0;border-radius:10px;padding:10px 14px;cursor:pointer}
 button.primary{background:var(--primary);color:white}
 button.secondary{background:#2a2e35;color:var(--ink)}
-button.ghost{background:#1d2026;color:var(--muted)}
+button.ghost{background:#1d2026;color:#muted}
 button:active{transform:translateY(1px)}
 main{padding:16px;max-width:1100px;margin:0 auto}
 .vista{display:none}
@@ -42,7 +42,7 @@ input,select{width:100%;padding:12px;border-radius:10px;border:1px solid #2a2e35
 label{display:flex;flex-direction:column;gap:6px}
 .lista-contenedor{max-height:380px;overflow:auto;border:1px solid #222;border-radius:12px;background:#0f1116}
 .lista{list-style:none;margin:0;padding:0}
-.item{display:grid;grid-template-columns:1fr 120px 56px 56px 120px;gap:8px;align-items:center;padding:10px;border-bottom:1px solid #1f2229}
+.item{display:grid;grid-template-columns:1fr 120px 56px 56px 80px;gap:8px;align-items:center;padding:10px;border-bottom:1px solid #1f2229}
 .item img{width:36px;height:36px;border-radius:50%;object-fit:cover}
 .item .nombre{display:flex;align-items:center;gap:8px}
 .sticky{position:sticky;bottom:0;background:#111318;border:1px solid #222;border-radius:12px;margin-top:12px;padding:12px}

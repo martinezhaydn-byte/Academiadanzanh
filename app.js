@@ -1,4 +1,5 @@
-/* v15: Aviso al quedar 1 clase + editar/eliminar meses desde Perfil */
+/* v16: Meses enlazados -> aviso de última clase considerando todo el paquete (activo + futuros)
+   + contador total enlazado en el Perfil */
 const $ = (q,ctx=document)=>ctx.querySelector(q);
 const $$ = (q,ctx=document)=>Array.from(ctx.querySelectorAll(q));
 const collator = new Intl.Collator('es', {sensitivity:'base', numeric:false});
@@ -24,6 +25,17 @@ function sanitizeCode(s){ return (s||"").toString().normalize("NFKC").replace(/\
 function norm(s){ return (s||"").toString().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim(); }
 function today(){ const d=new Date(); d.setHours(0,0,0,0); return d; }
 function remaining(cal){ return (cal?.dias||[]).filter(d=>!(cal.usados||[]).includes(d)).length; }
+function remainingFromActive(a){
+  const keys = Object.keys(a.calendario||{}).sort();
+  let sum=0;
+  for (const k of keys){
+    const rem = remaining(a.calendario[k]);
+    if (rem>0 || sum>0){ // empieza a contar desde el primer mes con >0 hasta el final
+      sum += rem;
+    }
+  }
+  return sum;
+}
 
 function speak(text){
   if(!("speechSynthesis" in window)) return;
@@ -47,7 +59,6 @@ load();
 function init(){
   construirTeclado($("#vistaAlumno .teclado"), "alumno");
   construirTeclado($("#tecladoAdmin"), "admin");
-  // Tabs
   $$(".tabs .tab").forEach(btn=>btn.addEventListener("click", ()=>{
     $$(".tabs .tab").forEach(b=>b.classList.remove("activo"));
     btn.classList.add("activo");
@@ -55,43 +66,33 @@ function init(){
     $$(".tab-content").forEach(t=>t.classList.add("oculto"));
     $("#tab-"+tab).classList.remove("oculto");
   }));
-  // Nav
   $("#btnModoAlumno").addEventListener("click", ()=>mostrarVista("alumno"));
   $("#btnModoAdmin").addEventListener("click", ()=>mostrarVista("adminLogin"));
   $("#btnEntrarAlumno").addEventListener("click", onEntrarAlumno);
   $("#btnBorrarAlumno").addEventListener("click", ()=>setPinDisplay("alumno",""));
   $("#btnEntrarAdmin").addEventListener("click", onEntrarAdmin);
   $("#btnBorrarAdmin").addEventListener("click", ()=>setPinDisplay("admin",""));
-
-  // Registro
   $("#btnNuevoAlumno").addEventListener("click", limpiarForm);
   $("#formAlumno").addEventListener("submit", onGuardarAlumno);
   $("#alFoto").addEventListener("change", onFotoSelect);
   $("#alCodigo").addEventListener("input", (e)=>{ const c=sanitizeCode(e.target.value); if(e.target.value!==c) e.target.value=c; });
-
-  // Lista/búsqueda
   $("#buscarAlumno").addEventListener("input", (e)=>{ state.filtro=e.target.value; renderLista(); });
   $("#btnLimpiarBusqueda").addEventListener("click", ()=>{ state.filtro=""; $("#buscarAlumno").value=""; renderLista(); });
   renderLista();
-
-  // Config
   renderConfig();
   $("#btnGuardarConfig").addEventListener("click", onGuardarConfig);
   $("#btnExportar").addEventListener("click", onExportar);
   $("#btnImportar").addEventListener("click", ()=>$("#fileImportar").click());
   $("#fileImportar").addEventListener("change", onImportarArchivo);
   $("#cfgPin").addEventListener("input", (e)=>{ const c=sanitizeCode(e.target.value); if(e.target.value!==c) e.target.value=c; });
-
-  // Calendario multi‑mes
   poblarSelectAlumnos($("#selAlumnoCalendario"));
   $("#btnAgregarMes").addEventListener("click", ()=>addMesBlock());
   $("#btnLimpiarCalendario").addEventListener("click", ()=>{ $("#multiMes").innerHTML=""; });
   $("#btnGuardarCalendario").addEventListener("click", guardarCalendarioMulti);
-  addMesBlock(); // por defecto
+  addMesBlock();
   mostrarVista("alumno");
 }
 
-// ---------- Keypad / Accesos ----------
 function mostrarVista(which){
   $$(".vista").forEach(v=>v.classList.remove("activa"));
   if (which==="alumno") $("#vistaAlumno").classList.add("activa");
@@ -128,14 +129,15 @@ function onEntrarAlumno(){
   const hoyStr=fmtDate(today()); const puedeHoy=(cal.dias||[]).includes(hoyStr) && !(cal.usados||[]).includes(hoyStr);
   if(!puedeHoy){ speak("Acceso denegado"); res.textContent="Acceso denegado: hoy no está en sus días permitidos o ya fue usado."; res.classList.add("err"); return clear(); }
   cal.usados=cal.usados||[]; cal.usados.push(hoyStr);
-  const restantes=remaining(cal);
-  res.innerHTML=`<div class="okbox">${alumno.fotoBase64?`<img src="${alumno.fotoBase64}" alt="foto"/>`:""}<div><strong>${alumno.nombre}</strong><br/>Clases disponibles este mes: <span class="badge">${restantes}</span></div></div>`;
+  const restantesMes=remaining(cal);
+  const totalEnlazado = remainingFromActive(alumno); // suma activo + futuros
+  res.innerHTML=`<div class="okbox">${alumno.fotoBase64?`<img src="${alumno.fotoBase64}" alt="foto"/>`:""}<div><strong>${alumno.nombre}</strong><br/>Clases restantes este mes: <span class="badge">${restantesMes}</span> · Total enlazado: <span class="badge">${totalEnlazado}</span></div></div>`;
   res.classList.add("ok"); speak("Acceso otorgado"); save();
-  if (restantes===1){ toast(`⚠️ ${alumno.nombre} está en su última clase. Reagenda.`); }
+  if (totalEnlazado===1){ toast(`⚠️ ${alumno.nombre} está en su última clase del paquete enlazado.`); }
   clear();
 }
 
-// ---------- Registro ----------
+// ---- Registro
 function limpiarForm(){ $("#formAlumno").reset(); $("#formAlumno").dataset.editId=""; $("#formAlumno").dataset.fotoBase64=""; }
 async function onFotoSelect(e){
   const f=e.target.files?.[0]; if(!f) return;
@@ -187,7 +189,7 @@ function onGuardarAlumno(e){
   alert("Alumno guardado.");
 }
 
-// ---------- Lista & Perfil ----------
+// ---- Lista / Perfil
 function orderedAlumnos(){ const arr=state.alumnos.slice().sort((a,b)=>collator.compare(a.nombre||"", b.nombre||"")); return (state.config.orden==="desc")?arr.reverse():arr; }
 function filteredAlumnos(){ const f=norm(state.filtro); if(!f) return orderedAlumnos(); return orderedAlumnos().filter(a=>norm(a.nombre).includes(f)||norm(a.codigo).includes(f)); }
 function renderLista(){
@@ -233,18 +235,11 @@ function mostrarPerfil(id){
   if (!activoKey) activoKey = keys[0] || "—";
   const calAct = a.calendario?.[activoKey];
   const restantesAct = remaining(calAct);
+  const totalEnlazado = remainingFromActive(a);
   const diasHtmlAct = calAct ? calAct.dias.map(d=>{
     const usado = (calAct.usados||[]).includes(d);
     return `<li>${d} ${usado?"<span class='badge'>usado</span>":""}</li>`;
   }).join("") : "<li>Sin calendario activo.</li>";
-
-  // Botones editar/eliminar para mes activo
-  const accionesAct = activoKey && calAct ? `
-    <div class="acciones" style="margin-top:8px">
-      <button class="ghost" data-edit="${activoKey}">Editar mes</button>
-      <button class="btnDelMes" data-del="${activoKey}" style="background:var(--danger)">Eliminar mes</button>
-      <button class="primary" id="btnReagendar">Reagendar (multi‑mes)</button>
-    </div>` : "";
 
   const otherKeys = keys.filter(k=>k!==activoKey);
   let proximosHtml = "";
@@ -255,10 +250,6 @@ function mostrarPerfil(id){
       return `<div class="section">
         <h5>Próximo mes: <span class="badge">${k}</span> · Clases totales: <span class="badge">${c?.dias?.length||0}</span></h5>
         <details style="margin-top:6px"><summary>Ver días</summary><ul>${dias}</ul></details>
-        <div class="acciones" style="margin-top:8px">
-          <button class="ghost" data-edit="${k}">Editar mes</button>
-          <button class="btnDelMes" data-del="${k}" style="background:var(--danger)">Eliminar mes</button>
-        </div>
       </div>`;
     }).join("");
   }
@@ -270,46 +261,19 @@ function mostrarPerfil(id){
     </div>
     <div class="section">
       <h5>Mes activo: <span class="badge">${activoKey || "—"}</span></h5>
-      <div>Clases restantes: <span class="badge">${restantesAct}</span></div>
+      <div>Clases restantes (mes): <span class="badge">${restantesAct}</span> · <strong>Total enlazado:</strong> <span class="badge">${totalEnlazado}</span></div>
       <details style="margin-top:6px"><summary>Días asignados</summary><ul>${diasHtmlAct}</ul></details>
-      ${accionesAct}
+      <div class="acciones" style="margin-top:8px">
+        <button class="primary" id="btnReagendar">Reagendar (multi‑mes)</button>
+      </div>
     </div>
     ${proximosHtml || "<div class='hint'>No hay meses futuros cargados.</div>"}
   `;
-
-  // wire: reagendar, editar, eliminar
-  if ($("#btnReagendar")) $("#btnReagendar").addEventListener("click", ()=>reagendarMultiMes(a.id, calAct?.dias?.length||4));
-  $$("#perfilContenido [data-edit]").forEach(btn=> btn.addEventListener("click", ()=>editarMes(a.id, btn.getAttribute("data-edit"))));
-  $$("#perfilContenido [data-del]").forEach(btn=> btn.addEventListener("click", ()=>eliminarMes(a.id, btn.getAttribute("data-del"))));
-
+  $("#btnReagendar").addEventListener("click", ()=>reagendarMultiMes(a.id, calAct?.dias?.length||4));
   $("#panelPerfil").classList.remove("oculto");
 }
 
-function editarMes(alumnoId, mk){
-  const a=state.alumnos.find(x=>x.id===alumnoId); if(!a) return;
-  const cal=a.calendario?.[mk]; if(!cal){ alert("No hay calendario para ese mes."); return; }
-  // abrir pestaña calendario con bloque precargado y días marcados
-  $$(".tabs .tab").forEach(b=>b.classList.remove("activo"));
-  $$(`.tabs .tab[data-tab="calendario"]`)[0].classList.add("activo");
-  $$(".tab-content").forEach(t=>t.classList.add("oculto")); $("#tab-calendario").classList.remove("oculto");
-  $("#selAlumnoCalendario").value=a.id;
-  $("#multiMes").innerHTML="";
-  addMesBlock(mk, cal.dias.length, cal.dias.slice()); // preselecciona días
-  window.scrollTo({top: $("#tab-calendario").offsetTop - 20, behavior:"smooth"});
-}
-
-function eliminarMes(alumnoId, mk){
-  const a=state.alumnos.find(x=>x.id===alumnoId); if(!a) return;
-  if(!confirm(`¿Eliminar el mes ${mk} para ${a.nombre}?`)) return;
-  if (a.calendario && a.calendario[mk]){
-    delete a.calendario[mk];
-    save();
-    if (state.uiPerfilOpenId===alumnoId) mostrarPerfil(alumnoId);
-    toast(`Mes ${mk} eliminado.`);
-  }
-}
-
-// ---------- Config ----------
+// ---- Config
 function renderConfig(){ $("#cfgPin").value=state.config.pinAdmin||"1234"; $("#cfgOrden").value=state.config.orden||"asc"; renderVocesList(); }
 function renderVocesList(){
   const cont=$("#listaVoces"); if(!cont) return;
@@ -347,14 +311,11 @@ function onImportarArchivo(e){
   fr.readAsText(file);
 }
 
-// ---------- Calendario multi‑mes ----------
-function poblarSelectAlumnos(sel){
-  sel.innerHTML=""; const arr=orderedAlumnos();
-  arr.forEach(a=>{ const o=document.createElement("option"); o.value=a.id; o.textContent=`${a.nombre} (${a.codigo})`; sel.appendChild(o); });
-}
+// ---- Calendario multi‑mes
+function poblarSelectAlumnos(sel){ sel.innerHTML=""; const arr=orderedAlumnos(); arr.forEach(a=>{ const o=document.createElement("option"); o.value=a.id; o.textContent=`${a.nombre} (${a.codigo})`; sel.appendChild(o); }); }
 function orderedAlumnos(){ const arr=state.alumnos.slice().sort((a,b)=>collator.compare(a.nombre||"", b.nombre||"")); return (state.config.orden==="desc")?arr.reverse():arr; }
 
-function addMesBlock(defaultMonth=null, defaultPack=4, defaultDays=null){
+function addMesBlock(defaultMonth=null, defaultPack=4){
   const wrap=document.createElement("div"); wrap.className="mes-block";
   const mk = defaultMonth || new Date().toISOString().slice(0,7);
   wrap.innerHTML = `
@@ -393,31 +354,19 @@ function addMesBlock(defaultMonth=null, defaultPack=4, defaultDays=null){
       el.addEventListener("click", ()=>{ el.classList.toggle("activo"); enforcePack(); });
       grid.appendChild(el);
     }
-    // Preseleccionar días si se pasó defaultDays
-    if (Array.isArray(defaultDays) && defaultDays.length){
-      defaultDays.forEach(fd=>{
-        const btn = $$(`.dia`, grid).find(b=>b.dataset.full===fd);
-        if(btn) btn.classList.add("activo");
-      });
-    }
-    enforcePack();
   }
   function enforcePack(){
     const pack = parseInt(packInput.value,10);
     const activos = $$(".dia.activo", grid).filter(el=>el.dataset.full);
-    if (Array.isArray(defaultDays) && defaultDays.length){
-      packInput.value = String(defaultDays.length);
-    } else {
-      while (activos.length > pack){
-        activos.pop().classList.remove("activo");
-      }
+    while (activos.length > pack){
+      activos.pop().classList.remove("activo");
     }
   }
 
   mesInput.addEventListener("change", renderGrid);
   packInput.addEventListener("change", enforcePack);
   $(".btnQuitar", wrap).addEventListener("click", ()=>wrap.remove());
-  packInput.value = String(defaultDays?.length || defaultPack);
+  packInput.value = String(defaultPack);
   renderGrid();
   return wrap;
 }
@@ -441,12 +390,12 @@ function guardarCalendarioMulti(){
   try{ data = collectMesBlocks(); } catch(err){ alert(err.message); return; }
   const al = state.alumnos.find(a=>a.id===selId);
   al.calendario = al.calendario || {};
-  data.forEach(({mk, dias})=>{ al.calendario[mk] = { dias, usados: (al.calendario[mk]?.usados||[]).filter(u=>dias.includes(u)) }; });
+  data.forEach(({mk, dias})=>{ al.calendario[mk] = { dias, usados: [] }; });
   save();
   alert("Calendario guardado en los meses seleccionados.");
 }
 
-// ---- Reagendar multi‑mes ----
+// ---- Reagendar multi‑mes
 function nextMonthKey(mk){ const [y,m]=mk.split("-").map(n=>parseInt(n,10)); const d=new Date(y, m-1, 1); d.setMonth(d.getMonth()+1); return d.toISOString().slice(0,7); }
 function reagendarMultiMes(alumnoId, paquete=4){
   const a=state.alumnos.find(x=>x.id===alumnoId); if(!a) return;
