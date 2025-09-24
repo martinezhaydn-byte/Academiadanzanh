@@ -1,164 +1,17 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>Academia NH - Control de Accesos</title>
-  <meta name="theme-color" content="#0b0c10" />
-  <link rel="manifest" href="manifest.webmanifest" />
-  <link rel="stylesheet" href="style.css" />
+  <title>Academia NH — v17</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <header>
-    <h1>Academia de Danza NH — Control de Acceso</h1>
-    <nav>
-      <button id="btnModoAlumno" class="primary">Modo Alumno</button>
-      <button id="btnModoAdmin" class="secondary">Modo Administrador</button>
-      <button id="btnInstalar" class="ghost oculto">Instalar app</button>
-    </nav>
-  </header>
-
-  <main id="contenedor">
-    <section id="vistaAlumno" class="vista activa">
-      <h2>Entrada de Alumno</h2>
-      <div class="panel panel-alumno">
-        <div class="col-izq">
-          <div class="pin-display mini" aria-label="código ingresado"><span id="pinAlumno">____</span></div>
-          <div class="teclado mini" role="group" aria-label="teclado numérico"></div>
-          <div class="acciones compactas">
-            <button id="btnEntrarAlumno" class="primary">Entrar</button>
-            <button id="btnBorrarAlumno" class="ghost">Borrar</button>
-          </div>
-        </div>
-        <div class="col-der">
-          <div class="foto-preview">
-            <img id="previewFotoAlumno" alt="Foto" />
-            <small class="hint">La foto aparece al ingresar</small>
-          </div>
-        </div>
-      </div>
-      <div id="resultadoAlumno" class="resultado oculto"></div>
-    </section>
-
-    <section id="vistaAdminLogin" class="vista">
-      <h2>Acceso Administrador</h2>
-      <div class="panel panel-admin">
-        <div class="pin-display mini"><span id="pinAdmin">____</span></div>
-        <div class="teclado mini" id="tecladoAdmin" role="group" aria-label="teclado numérico admin"></div>
-        <div class="acciones compactas">
-          <button id="btnEntrarAdmin" class="primary">Entrar</button>
-          <button id="btnBorrarAdmin" class="ghost">Borrar</button>
-        </div>
-      </div>
-      <p class="hint">PIN por defecto: <strong>1234</strong> (cámbialo en Configuración).</p>
-    </section>
-
-    <section id="vistaAdmin" class="vista">
-      <h2>Panel Administrador</h2>
-      <div class="tabs">
-        <button class="tab activo" data-tab="registro">Registro</button>
-        <button class="tab" data-tab="calendario">Calendario</button>
-        <button class="tab" data-tab="lista">Lista</button>
-        <button class="tab" data-tab="config">Configuración</button>
-      </div>
-
-      <div class="tab-content" id="tab-registro">
-        <h3>Crear / Editar Alumno</h3>
-        <form id="formAlumno">
-          <div class="grid-2">
-            <label>Nombre completo
-              <input type="text" id="alNombre" required autocomplete="name" />
-            </label>
-            <label>Código (4 dígitos)
-              <input type="text" id="alCodigo" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" required
-                     autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" />
-            </label>
-            <label>Teléfono
-              <input type="tel" id="alTelefono" inputmode="tel" autocomplete="tel" />
-            </label>
-            <label>Edad
-              <input type="number" id="alEdad" min="1" max="120" />
-            </label>
-            <label>Fecha de nacimiento
-              <input type="date" id="alFechaNac" />
-            </label>
-            <label>Foto de perfil
-              <input type="file" id="alFoto" accept="image/*" />
-            </label>
-          </div>
-          <div class="acciones">
-            <button type="button" id="btnNuevoAlumno" class="ghost">Crear nuevo</button>
-            <button type="submit" id="btnGuardarAlumno" class="primary">Guardar</button>
-          </div>
-        </form>
-      </div>
-
-      <div class="tab-content oculto" id="tab-calendario">
-        <h3>Calendario y Paquete de Clases (multi‑mes)</h3>
-        <div class="grid-3">
-          <label>Alumno
-            <select id="selAlumnoCalendario"></select>
-          </label>
-        </div>
-        <p class="hint">Selecciona días de varios meses en una sola acción. Usa “Añadir mes”.</p>
-        <div id="multiMes"></div>
-        <div class="acciones">
-          <button id="btnAgregarMes" class="ghost">Añadir mes</button>
-          <button id="btnGuardarCalendario" class="primary">Guardar calendario</button>
-          <button id="btnLimpiarCalendario" class="ghost">Quitar todos los meses</button>
-        </div>
-      </div>
-
-      <div class="tab-content oculto" id="tab-lista">
-        <h3>Alumnos inscritos</h3>
-        <div class="acciones" style="margin-bottom:8px;gap:8px">
-          <input id="buscarAlumno" type="search" placeholder="Buscar por nombre o código..." />
-          <button id="btnLimpiarBusqueda" class="ghost">Limpiar</button>
-        </div>
-        <div class="lista-contenedor">
-          <ul id="listaAlumnos" class="lista"></ul>
-        </div>
-        <div id="panelPerfil" class="perfil sticky oculto">
-          <h4>Perfil</h4>
-          <div id="perfilContenido">Selecciona un alumno para ver su perfil.</div>
-        </div>
-      </div>
-
-      <div class="tab-content oculto" id="tab-config">
-        <h3>Configuración</h3>
-        <div class="grid-2">
-          <label>PIN de Administrador (4 dígitos)
-            <input type="text" id="cfgPin" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4"
-                   autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-          </label>
-          <label>Voz (español) para anuncios
-            <select id="cfgVoz"></select>
-          </label>
-          <label>Orden de lista
-            <select id="cfgOrden">
-              <option value="asc">A → Z</option>
-              <option value="desc">Z → A</option>
-            </select>
-          </label>
-        </div>
-        <div class="acciones">
-          <button id="btnGuardarConfig" class="primary">Guardar Configuración</button>
-          <button id="btnExportar" class="ghost">Exportar respaldo</button>
-          <button id="btnImportar" class="ghost">Importar respaldo</button>
-          <input type="file" id="fileImportar" accept="application/json" class="oculto" />
-        </div>
-
-        <h4 style="margin-top:16px">Prueba y selección de voces</h4>
-        <p class="hint">Pulsa “Probar” para escuchar una muestra y “Seleccionar” para usarla en la app.</p>
-        <div id="listaVoces" class="voicelist"></div>
-      </div>
-    </section>
+  <header><h1>Academia NH — Control de Acceso (v17)</h1></header>
+  <main>
+    <section id="app"></section>
   </main>
-
-  <footer>
-    <small>© Academia de Danza NH</small>
-  </footer>
-
-  <script src="app.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
