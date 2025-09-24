@@ -1,16 +1,16 @@
-
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-  <title>Academia NH — Control de Acceso (v17)</title>
-  <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Academia NH - Control de Accesos</title>
+  <meta name="theme-color" content="#0b0c10" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header>
-    <h1>Academia NH — Control de Acceso (v17)</h1>
+    <h1>Academia de Danza NH — Control de Acceso</h1>
     <nav>
       <button id="btnModoAlumno" class="primary">Modo Alumno</button>
       <button id="btnModoAdmin" class="secondary">Modo Administrador</button>
@@ -19,13 +19,13 @@
   </header>
 
   <main id="contenedor">
-    <!-- ALUMNO -->
+    <!-- Vista de acceso alumno -->
     <section id="vistaAlumno" class="vista activa">
       <h2>Entrada de Alumno</h2>
       <div class="panel panel-alumno">
         <div class="col-izq">
           <div class="pin-display mini" aria-label="código ingresado"><span id="pinAlumno">____</span></div>
-          <div class="teclado mini" id="tecladoAlumno" role="group" aria-label="teclado numérico"></div>
+          <div class="teclado mini" role="group" aria-label="teclado numérico"></div>
           <div class="acciones compactas">
             <button id="btnEntrarAlumno" class="primary">Entrar</button>
             <button id="btnBorrarAlumno" class="ghost">Borrar</button>
@@ -41,7 +41,7 @@
       <div id="resultadoAlumno" class="resultado oculto"></div>
     </section>
 
-    <!-- ADMIN LOGIN -->
+    <!-- Vista de acceso admin -->
     <section id="vistaAdminLogin" class="vista">
       <h2>Acceso Administrador</h2>
       <div class="panel panel-admin">
@@ -55,10 +55,9 @@
       <p class="hint">PIN por defecto: <strong>1234</strong> (cámbialo en Configuración).</p>
     </section>
 
-    <!-- ADMIN -->
+    <!-- Vista admin principal -->
     <section id="vistaAdmin" class="vista">
       <h2>Panel Administrador</h2>
-
       <div class="tabs">
         <button class="tab activo" data-tab="registro">Registro</button>
         <button class="tab" data-tab="calendario">Calendario</button>
@@ -98,18 +97,36 @@
       </div>
 
       <div class="tab-content oculto" id="tab-calendario">
-        <h3>Calendario y Paquete de Clases (multi‑mes)</h3>
+        <h3>Calendario y Paquete de Clases</h3>
         <div class="grid-3">
           <label>Alumno
             <select id="selAlumnoCalendario"></select>
           </label>
+          <label>Paquete del mes
+            <select id="selPaquete">
+              <option value="1">Clase suelta (1)</option>
+              <option value="2">2 clases</option>
+              <option value="3">3 clases</option>
+              <option value="4">4 clases</option>
+              <option value="5">5 clases</option>
+              <option value="6">6 clases</option>
+              <option value="7">7 clases</option>
+              <option value="8">8 clases</option>
+              <option value="9">9 clases</option>
+              <option value="10">10 clases</option>
+              <option value="11">11 clases</option>
+              <option value="12">12 clases</option>
+            </select>
+          </label>
+          <label>Mes de la asignación
+            <input type="month" id="mesAsignacion">
+          </label>
         </div>
-        <p class="hint">Selecciona días de varios meses en una sola acción. Usa “Añadir mes”.</p>
-        <div id="multiMes"></div>
+        <p class="hint">Selecciona exactamente tantos días como el paquete. Las clases no se acumulan.</p>
+        <div id="calendario"></div>
         <div class="acciones">
-          <button id="btnAgregarMes" class="ghost">Añadir mes</button>
           <button id="btnGuardarCalendario" class="primary">Guardar calendario</button>
-          <button id="btnLimpiarCalendario" class="ghost">Quitar todos los meses</button>
+          <button id="btnLimpiarCalendario" class="ghost">Limpiar selección</button>
         </div>
       </div>
 
@@ -163,6 +180,6 @@
     <small>© Academia de Danza NH</small>
   </footer>
 
-  <script src="./app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
